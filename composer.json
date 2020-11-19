@@ -4,8 +4,8 @@
     "type": "library",
     "license": "MIT",
     "autoload": {
-        "psr-4": {
-            "aalonzolu\\digifact\\": "src/"
+        "psr-0": {
+            "aalonzolu\\digifact": "src/"
         }
     },
     "authors": [
