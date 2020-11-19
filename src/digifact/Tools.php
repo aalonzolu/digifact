@@ -1,5 +1,5 @@
 <?php
-namespace digifact;
+namespace Digifact;
 
 class Tools {    
     // Method: POST, PUT, GET etc

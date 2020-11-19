@@ -1,6 +1,6 @@
 <?php 
 
-namespace digifact;
+namespace Digifact;
 class Digifact
 {
     private $username;
