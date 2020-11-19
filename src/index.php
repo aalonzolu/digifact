@@ -1,6 +1,6 @@
 <?php 
 
-namespace aalonzolu\Digifact;
+namespace aalonzolu\digifact;
 
 class Digifact
 {
