@@ -11,5 +11,7 @@
         }
     ],
     "minimum-stability": "stable",
-    "require": {}
+    "require": {
+        "servo/fluidxml": "^1.21"
+    }
 }

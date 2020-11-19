@@ -2,10 +2,14 @@
 
 namespace aalonzolu\Digifact;
 
-class Index
+class Digifact
 {
-    public function greet($greet = "Hello World")
+    private $username;
+    private $password;
+    public function __construct($username, $password)
     {
-        return $greet;
+        $this->username = $username;
+        $this->password = $password;
+        return "Hola mundo";
     }
 }
