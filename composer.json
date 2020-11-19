@@ -4,8 +4,8 @@
     "type": "library",
     "license": "MIT",
     "autoload": {
-        "psr-0": {
-            "aalonzolu\\digifact": "src/"
+        "psr-4": {
+            "aalonzolu\\digifact\\": "src/"
         }
     },
     "authors": [
@@ -16,6 +16,6 @@
     ],
     "minimum-stability": "stable",
     "require": {
-        "servo/fluidxml": "^1.21"
+        "php": ">=5.4.0"
     }
 }
