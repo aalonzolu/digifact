@@ -5,6 +5,7 @@ class Tools {
     // Method: POST, PUT, GET etc
     // Data: array("param" => "value") ==> index.php?param=value
 
+    public $httpcode;
     public function CallAPI($method, $url, $data = false)
     {
         $curl = curl_init();
@@ -29,11 +30,13 @@ class Tools {
 
         curl_setopt($curl, CURLOPT_URL, $url);
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+        curl_setopt($curl, CURLOPT_MAXREDIRS, 2);
+        curl_setopt($curl, CURLOPT_TIMEOUT, 15);
 
-        $result = curl_exec($curl);
-
+        $response = json_decode(curl_exec($curl));
+        $this->httpcode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
         curl_close($curl);
 
-        return $result;
+        return $response;
     }
 }
