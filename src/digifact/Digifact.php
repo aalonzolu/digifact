@@ -18,19 +18,22 @@ class Digifact
         }else{
             $this->endpointUrl = 'https://felgttestaws.digifact.com.gt/felapiv2/api/';
         }
+        /**
+         * send credentials to digifact and get token
+         */
         $responseApi = $tools->CallAPI("POST", $this->endpointUrl."login/get_token",[
             'Username'=>$this->username,
             'Password'=>$this->password
         ]);
-        if(isset($responseApi->token)){
+        if(isset($responseApi->Token)){
             // token success
-            $this->token=$responseApi->token;
+            $this->token=$responseApi->Token;
         }else{
             //trow error
             if(isset($responseApi->description)){
-                throw new Error($responseApi->description);
+                throw new \Error($responseApi->description);
             }else{
-                throw new Error("Ha ocurrido un error inesperado conectandose a Digifact");
+                throw new \Error("Ha ocurrido un error inesperado conectandose a Digifact");
             } 
         }
     }

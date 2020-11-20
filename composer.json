@@ -3,11 +3,6 @@
     "description": "Digifact PHP SDK",
     "type": "library",
     "license": "MIT",
-    "autoload": {
-        "psr-0": {
-            "Digifact": "src/"
-        }
-    },
     "authors": [
         {
             "name": "Andres Alonzo",
@@ -17,5 +12,10 @@
     "minimum-stability": "stable",
     "require": {
         "php": ">=5.4.0"
+    },
+    "autoload": {
+        "psr-0": {
+            "Digifact": "src/"
+        }
     }
 }
