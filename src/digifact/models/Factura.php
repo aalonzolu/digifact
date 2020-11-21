@@ -56,7 +56,7 @@ class Factura{
                 }
                 //sumar tipo de impuesto
                 $this->TotalImpuestos[$impuesto->NombreCorto] += $impuesto->MontoImpuesto;
-                $this->GranTotal += $impuesto->MontoImpuesto;
+                // $this->GranTotal += $impuesto->MontoImpuesto;
             }
         }
         $this->GranTotal = $this->GranTotal;
@@ -121,7 +121,7 @@ class Factura{
                                     </dte:Impuesto>";
                                 }
                                 $XMLS_STRING .= "</dte:Impuestos>
-                                <dte:Total>1.00</dte:Total>
+                                <dte:Total>".($item->Precio-$item->Descuento)."</dte:Total>
                             </dte:Item>";
                             }
                             $XMLS_STRING .= "

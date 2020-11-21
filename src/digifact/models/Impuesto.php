@@ -24,27 +24,32 @@ class Impuesto{
      * @param Number $MontoGravable Monto sobre el cual se aplica el impuesto.
      * @param Number $MontoImpuesto
      */
-    function __construct($NombreCorto, $CodigoUnidadGravable, $MontoGravable, $MontoImpuesto)
+    function __construct($NombreCorto, $CodigoUnidadGravable, $MontoTotal)
     {
         if(in_array($NombreCorto,$this->tiposImpuesto)){
             $this->NombreCorto = $NombreCorto;
         }else{
             throw new \Exception('nombreCorto de impuesto no vaido');
         }
-        if(!empty($CodigoUnidadGravable)){
+        if(is_numeric($CodigoUnidadGravable)){
             $this->CodigoUnidadGravable = $CodigoUnidadGravable;
         }else{
             throw new \Exception('Se requiere CodigoUnidadGravable');
         }
-        if(is_numeric($MontoGravable)){
-            $this->MontoGravable = $MontoGravable;
+        
+        if(is_numeric($MontoTotal)){
+            $this->MontoGravable = round($MontoTotal/1.12,4);
         }else{
-            throw new \Exception('Se requiere MontoGravable');
+            throw new \Exception('Se requiere MontoTotal');
         }
-        if(is_numeric($MontoImpuesto)){
-            $this->MontoImpuesto = $MontoImpuesto;
-        }else{
-            throw new \Exception('Se requiere MontoImpuesto');
+
+        switch($CodigoUnidadGravable){
+            case 1:
+                $this->MontoImpuesto = $this->MontoGravable*0.12;
+            break;
+            default:
+                $this->MontoImpuesto = $this->MontoGravable*0.12;
+            break;
         }
         
     }
