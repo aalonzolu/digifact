@@ -139,8 +139,8 @@ class Factura{
                 <dte:Adenda>
                  <dtecomm:Informacion_COMERCIAL xmlns:dtecomm=\"https://www.digifact.com.gt/dtecomm\" xsi:schemaLocation=\"https://www.digifact.com.gt/dtecomm\">
                    <dtecomm:InformacionAdicional Version=\"7.1234654163\">
-                       <dtecomm:REFERENCIA_INTERNA>1B7IUMWYO3B2</dtecomm:REFERENCIA_INTERNA>
-                       <dtecomm:FECHA_REFERENCIA>2020-04-30T10:40:00</dtecomm:FECHA_REFERENCIA>
+                       <dtecomm:REFERENCIA_INTERNA>GED_".time()."</dtecomm:REFERENCIA_INTERNA>
+                       <dtecomm:FECHA_REFERENCIA>{$this->datosGenerales->FechaHoraEmision}</dtecomm:FECHA_REFERENCIA>
                        <dtecomm:VALIDAR_REFERENCIA_INTERNA>VALIDAR</dtecomm:VALIDAR_REFERENCIA_INTERNA>
                     </dtecomm:InformacionAdicional>
                     </dtecomm:Informacion_COMERCIAL>

@@ -48,11 +48,23 @@ class Digifact
         }
     }
 
-    public function CertificateDteXMLToSign(Factura $factura){
+    public function CertificateDTEXMLToSign(Factura $factura){
         $tools = new Tools();
         $responseApi = $tools->CallAPI(
             "POST", 
-            $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO=CERTIFICATE_DTE_XML_TOSIGN",
+            $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO=CERTIFICATE_DTE_XML_TOSIGN&FORMAT=PDF_HTML_XML",
+            $factura->toXML(),
+            [
+                "Content-Type: application/json",
+                "Authorization: {$this->token}"
+            ]
+        );
+    }
+    public function CertificateDTEXML(Factura $factura){
+        $tools = new Tools();
+        $responseApi = $tools->CallAPI(
+            "POST", 
+            $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO=CERTIFICATE_DTE_XML_TOSIGN&FORMAT=PDF_HTML_XML",
             $factura->toXML(),
             [
                 "Content-Type: application/json",
