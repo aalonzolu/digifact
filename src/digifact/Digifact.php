@@ -1,15 +1,25 @@
 <?php 
 
 namespace Digifact;
+use Digifact\models\Factura;
 class Digifact
 {
     private $username;
     private $password;
+    private $NIT;
     private $token;
     private $endpointUrl;
     public $sandbox=true;
-    public function __construct($username, $password)
+    private $xsd_documento ='https://cat.desa.sat.gob.gt/xsd/alfa/GT_Documento-0.1.0.xsd';
+
+
+    const DATE_FORMAT = '%y-%m-%dT%';
+    const NIT_REGEX = "/(([1-9])+([0-9])*([0-9]|K))$/";
+    const EMAIL_REGEX = "/((\w[-+._\w]+@\w[-.\w]+\.\w[-.\w]+)(;?))*/";
+    
+    public function __construct($NIT,$username, $password)
     {
+        $this->NIT = $NIT;
         $this->username = $username;
         $this->password = $password;
         $tools = new Tools();
@@ -36,5 +46,19 @@ class Digifact
                 throw new \Error("Ha ocurrido un error inesperado conectandose a Digifact");
             } 
         }
+    }
+
+    public function CertificateDteXMLToSign(Factura $factura){
+        $tools = new Tools();
+        $responseApi = $tools->CallAPI(
+            "POST", 
+            $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO=CERTIFICATE_DTE_XML_TOSIGN",
+            $factura->toXML(),
+            [
+                "Content-Type: application/json",
+                "Authorization: {$this->token}"
+            ]
+        );
+        var_dump($responseApi);exit;
     }
 }
