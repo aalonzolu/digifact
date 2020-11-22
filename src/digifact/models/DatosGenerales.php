@@ -47,10 +47,11 @@ class DatosGenerales {
     public $moneda;
     public $FechaHoraEmision;
     public $tipo;
+    public $ReferenciaInterna;
 
     private $dateFormat = 'Y-m-d\TH:i:s';
 
-    function __construct($tipo='FACT', $moneda='GTQ', $FechaHoraEmision=null)
+    function __construct($ReferenciaInterna,$tipo='FACT', $moneda='GTQ', $FechaHoraEmision=null )
     {
         if(in_array($tipo,$this->tiposDte)){
             $this->tipo = $tipo;
@@ -63,6 +64,11 @@ class DatosGenerales {
             throw new \Exception('Moneda no valida');
         }
 
+        if (!empty($ReferenciaInterna)) {
+            $this->ReferenciaInterna = $ReferenciaInterna;
+        }else{
+            throw new \Exception('Se requiere el parametro ReferenciaInterna"');
+        }
         if(!empty($FechaHoraEmision)){
             // validar formato de fecha Y-M-dTH:i:s
             if (\DateTime::createFromFormat($this->dateFormat, $FechaHoraEmision) !== FALSE) {

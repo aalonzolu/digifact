@@ -3,11 +3,11 @@
 namespace Digifact\models;
 
 class Factura{
-    private $datosGenerales;
-    private $Emisor;
-    private $Receptor;
-    private $Frases;
-    private $Items;    
+    public $datosGenerales;
+    public $Emisor;
+    public $Receptor;
+    public $Frases;
+    public $Items;    
     private $GranTotal;
     private $TotalImpuestos;
     function __construct(DatosGenerales $datosGenerales, Emisor $emisor, Receptor $receptor, $frases=[], $items=[]){
@@ -48,7 +48,7 @@ class Factura{
     private function calcTotals(){
         $this->GranTotal = 0;
         $this->TotalImpuestos =[];
-        foreach ($this->Items as $linea=> $item) {
+        foreach ($this->Items as  $item) {
             $this->GranTotal += $item->Precio;
             foreach ($item->Impuestos as $impuesto) {
                 if(!isset($this->TotalImpuestos[$impuesto->NombreCorto])){
@@ -139,7 +139,7 @@ class Factura{
                 <dte:Adenda>
                  <dtecomm:Informacion_COMERCIAL xmlns:dtecomm=\"https://www.digifact.com.gt/dtecomm\" xsi:schemaLocation=\"https://www.digifact.com.gt/dtecomm\">
                    <dtecomm:InformacionAdicional Version=\"7.1234654163\">
-                       <dtecomm:REFERENCIA_INTERNA>GED_".time()."</dtecomm:REFERENCIA_INTERNA>
+                       <dtecomm:REFERENCIA_INTERNA>{$this->datosGenerales->ReferenciaInterna}</dtecomm:REFERENCIA_INTERNA>
                        <dtecomm:FECHA_REFERENCIA>{$this->datosGenerales->FechaHoraEmision}</dtecomm:FECHA_REFERENCIA>
                        <dtecomm:VALIDAR_REFERENCIA_INTERNA>VALIDAR</dtecomm:VALIDAR_REFERENCIA_INTERNA>
                     </dtecomm:InformacionAdicional>

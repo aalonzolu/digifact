@@ -1,6 +1,8 @@
 <?php 
 
 namespace Digifact;
+
+use Digifact\models\DatosAnulacion;
 use Digifact\models\Factura;
 class Digifact
 {
@@ -9,16 +11,27 @@ class Digifact
     private $NIT;
     private $token;
     private $endpointUrl;
+    private $Factura;
     public $sandbox=true;
-    private $xsd_documento ='https://cat.desa.sat.gob.gt/xsd/alfa/GT_Documento-0.1.0.xsd';
+    public $Autorizacion;
+    public $Serie;
+    public $NUMERO;
+    public $pdf =false;
+    public $xml =false;
+    public $html =false;
 
 
     const DATE_FORMAT = '%y-%m-%dT%';
     const NIT_REGEX = "/(([1-9])+([0-9])*([0-9]|K))$/";
     const EMAIL_REGEX = "/((\w[-+._\w]+@\w[-.\w]+\.\w[-.\w]+)(;?))*/";
     
-    public function __construct($NIT,$username, $password)
+    public function __construct($NIT,$username, $password, $debug=false)
     {
+        if($debug){
+            ini_set('display_errors', 1);
+            ini_set('display_startup_errors', 1);
+            error_reporting(E_ALL);
+        }
         $this->NIT = $NIT;
         $this->username = $username;
         $this->password = $password;
@@ -48,8 +61,9 @@ class Digifact
         }
     }
 
-    public function CertificateDTEXMLToSign(Factura $factura){
+    public function CertificateDTEToSign(Factura $factura){
         $tools = new Tools();
+        $this->Factura = $factura;
         $responseApi = $tools->CallAPI(
             "POST", 
             $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO=CERTIFICATE_DTE_XML_TOSIGN&FORMAT=PDF_HTML_XML",
@@ -59,8 +73,26 @@ class Digifact
                 "Authorization: {$this->token}"
             ]
         );
+        if(isset($responseApi->Codigo) and $responseApi->Codigo==1){
+            $this->xml = $responseApi->ResponseDATA1;
+            $this->html = $responseApi->ResponseDATA2;
+            $this->pdf = $responseApi->ResponseDATA3;
+            $this->Autorizacion = $responseApi->Autorizacion;
+            $this->Serie = $responseApi->Serie;
+            $this->NUMERO = $responseApi->NUMERO;
+            // var_dump($responseApi);exit;
+            return true;
+        }
+        else{
+            //trow error
+            if(isset($responseApi->Mensaje)){
+                throw new \Error($responseApi->Mensaje);
+            }else{
+                throw new \Error("Ha ocurrido un error inesperado conectandose a Digifact");
+            } 
+        }
     }
-    public function CertificateDTEXML(Factura $factura){
+    public function CertificateDTE(Factura $factura){
         $tools = new Tools();
         $responseApi = $tools->CallAPI(
             "POST", 
@@ -71,6 +103,46 @@ class Digifact
                 "Authorization: {$this->token}"
             ]
         );
-        var_dump($responseApi);exit;
+        if(isset($responseApi->Codigo) and $responseApi->Codigo==1){
+            $this->xml = $responseApi->ResponseDATA1;
+            $this->html = $responseApi->ResponseDATA2;
+            $this->pdf = $responseApi->ResponseDATA3;
+            $this->Autorizacion = $responseApi->Autorizacion;
+            $this->Serie = $responseApi->Serie;
+            $this->NUMERO = $responseApi->NUMERO;
+            // var_dump($responseApi);exit;
+            return true;
+        }
+        else{
+            //trow error
+            if(isset($responseApi->Mensaje)){
+                throw new \Error($responseApi->Mensaje);
+            }else{
+                throw new \Error("Ha ocurrido un error inesperado conectandose a Digifact");
+            } 
+        }
+    }
+
+    public function Anular($Motivo, $TipoAnulacion="ANULAR_FEL"){
+        if(!in_array($TipoAnulacion,["ANULAR_FEL_TOSIGN","ANULAR_FEL"])){
+            throw new \Error("TipoAnulacion solo puede ser ANULAR_FEL_TOSIGN o ANULAR_FEL");
+        }
+        return $this->AnularOtro($this->NUMERO, $this->NIT,$this->Factura->Receptor->IDReceptor,$this->Factura->datosGenerales->FechaHoraEmision,$Motivo, $TipoAnulacion);
+    }
+
+    private function AnularOtro($NumeroDocumento, $NITEmisor,$IDReceptor,$FechaHoraEmision,$Motivo,$TipoAnulacion="ANULAR_FEL",$FechaHoraAnulacion=false){
+
+        $DatosAnulacion =new DatosAnulacion($NumeroDocumento, $NITEmisor,$IDReceptor,$FechaHoraEmision,$Motivo,$FechaHoraAnulacion);
+        $tools = new Tools();
+        $responseApi = $tools->CallAPI(
+            "POST", 
+            $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO={$TipoAnulacion}&FORMAT=PDF_HTML_XML",
+            $DatosAnulacion->toXML(),
+            [
+                "Content-Type: application/json",
+                "Authorization: {$this->token}"
+            ]
+        );
+        return $responseApi;
     }
 }
