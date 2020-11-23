@@ -127,7 +127,7 @@ class Digifact
         if(!in_array($TipoAnulacion,["ANULAR_FEL_TOSIGN","ANULAR_FEL"])){
             throw new \Error("TipoAnulacion solo puede ser ANULAR_FEL_TOSIGN o ANULAR_FEL");
         }
-        return $this->AnularOtro($this->NUMERO, $this->NIT,$this->Factura->Receptor->IDReceptor,$this->Factura->datosGenerales->FechaHoraEmision,$Motivo, $TipoAnulacion);
+        return $this->AnularOtro($this->Autorizacion, $this->NIT,$this->Factura->Receptor->IDReceptor,$this->Factura->datosGenerales->FechaHoraEmision,$Motivo, $TipoAnulacion);
     }
 
     private function AnularOtro($NumeroDocumento, $NITEmisor,$IDReceptor,$FechaHoraEmision,$Motivo,$TipoAnulacion="ANULAR_FEL",$FechaHoraAnulacion=false){
