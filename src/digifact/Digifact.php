@@ -32,7 +32,7 @@ class Digifact
             ini_set('display_startup_errors', 1);
             error_reporting(E_ALL);
         }
-        $this->NIT = $NIT;
+        $this->NIT =str_pad($NIT, 10, '0', STR_PAD_LEFT); ;
         $this->username = $username;
         $this->password = $password;
         $tools = new Tools();
@@ -134,6 +134,7 @@ class Digifact
 
         $DatosAnulacion =new DatosAnulacion($NumeroDocumento, $NITEmisor,$IDReceptor,$FechaHoraEmision,$Motivo,$FechaHoraAnulacion);
         $tools = new Tools();
+        echo $DatosAnulacion->toXML();exit;
         $responseApi = $tools->CallAPI(
             "POST", 
             $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO={$TipoAnulacion}&FORMAT=PDF_HTML_XML",
