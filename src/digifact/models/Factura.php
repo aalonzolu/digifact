@@ -10,6 +10,15 @@ class Factura{
     public $Items;    
     private $GranTotal;
     private $TotalImpuestos;
+    /**
+     * Crear una objecto de factura 
+     *
+     * @param DatosGenerales $datosGenerales
+     * @param Emisor $emisor
+     * @param Receptor $receptor
+     * @param array $frases
+     * @param array $items
+     */
     function __construct(DatosGenerales $datosGenerales, Emisor $emisor, Receptor $receptor, $frases=[], $items=[]){
 
         $this->datosGenerales = $datosGenerales;

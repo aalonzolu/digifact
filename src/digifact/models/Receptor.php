@@ -6,6 +6,13 @@ class Receptor{
     public $IDReceptor;
     public $Direccion;
 
+    /**
+     * Objeto receptor
+     *
+     * @param [type] $NombreReceptor
+     * @param [type] $IDReceptor
+     * @param Direccion $Direccion
+     */
     function __construct($NombreReceptor, $IDReceptor, Direccion $Direccion)
     {
         if(!empty($NombreReceptor)){

@@ -25,6 +25,14 @@ class Digifact
     const NIT_REGEX = "/(([1-9])+([0-9])*([0-9]|K))$/";
     const EMAIL_REGEX = "/((\w[-+._\w]+@\w[-.\w]+\.\w[-.\w]+)(;?))*/";
     
+    /**
+     * Crear la conexion inicial a digifact
+     *
+     * @param [type] $NIT
+     * @param [type] $username
+     * @param [type] $password
+     * @param boolean $debug
+     */
     public function __construct($NIT,$username, $password, $debug=false)
     {
         if($debug){
