@@ -40,7 +40,8 @@ class Digifact
             ini_set('display_startup_errors', 1);
             error_reporting(E_ALL);
         }
-        $this->NIT =str_pad($NIT, 10, '0', STR_PAD_LEFT); ;
+        // formatear el nit con 4 ceros al principio
+        $this->NIT =str_pad($NIT, 12, '0', STR_PAD_LEFT);
         $this->username = $username;
         $this->password = $password;
         $tools = new Tools();
