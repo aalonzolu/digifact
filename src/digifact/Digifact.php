@@ -143,10 +143,11 @@ class Digifact
 
         $DatosAnulacion =new DatosAnulacion($NumeroDocumento, $NITEmisor,$IDReceptor,$FechaHoraEmision,$Motivo,$FechaHoraAnulacion);
         $tools = new Tools();
-        echo $DatosAnulacion->toXML();exit;
+        // echo $DatosAnulacion->toXML();exit;
+        // echo $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO={$TipoAnulacion}&FORMAT=XML";exit;
         $responseApi = $tools->CallAPI(
             "POST", 
-            $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO={$TipoAnulacion}&FORMAT=PDF_HTML_XML",
+            $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO={$TipoAnulacion}&FORMAT=XML",
             $DatosAnulacion->toXML(),
             [
                 "Content-Type: application/json",

@@ -68,24 +68,17 @@ class DatosAnulacion {
     }
 
     public function toXML(){
-        return "<?xml version='1.0' encoding='UTF-8'?>
-        <dte:GTAnulacionDocumento 
-          xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\"
-          xmlns:dte=\"http://www.sat.gob.gt/dte/fel/0.1.0\"
-          xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"
-          xsi:schemaLocation=\"http://www.sat.gob.gt/dte/fel/0.1.0\"
-          Version=\"0.1\">
-          <dte:SAT>
-            <dte:AnulacionDTE ID=\"DatosCertificados\">
-              <dte:DatosGenerales ID=\"DatosAnulacion\" 
-              NumeroDocumentoAAnular=\"{$this->NumeroDocumentoAAnular}\"
-              NITEmisor=\"{$this->NITEmisor}\"
-              IDReceptor=\"{$this->IDReceptor}\"
-                FechaEmisionDocumentoAnular=\"{$this->FechaEmisionDocumentoAnular}\"
-                FechaHoraAnulacion=\"{$this->FechaHoraAnulacion}\"
-                MotivoAnulacion=\"{$this->MotivoAnulacion}\" />
-            </dte:AnulacionDTE>
-          </dte:SAT>
-        </dte:GTAnulacionDocumento>";
+        return "<?xml version='1.0' encoding='utf-8'?>
+<dte:GTAnulacionDocumento xmlns:dte=\"http://www.sat.gob.gt/dte/fel/0.1.0\"
+    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"
+    Version=\"0.1\">
+    <dte:SAT>
+        <dte:AnulacionDTE ID=\"DatosCertificados\">
+            <dte:DatosGenerales ID=\"DatosAnulacion\" NumeroDocumentoAAnular=\"{$this->NumeroDocumentoAAnular}\" NITEmisor=\"{$this->NITEmisor}\"
+                IDReceptor=\"{$this->IDReceptor}\" FechaEmisionDocumentoAnular=\"{$this->FechaEmisionDocumentoAnular}\"
+                FechaHoraAnulacion=\"{$this->FechaHoraAnulacion}\" MotivoAnulacion=\"{$this->MotivoAnulacion}\"/>
+    </dte:AnulacionDTE>
+    </dte:SAT>
+</dte:GTAnulacionDocumento>";
     }
 }

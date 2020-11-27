@@ -21,7 +21,7 @@ class Receptor{
             throw new \Exception('Se requiere NombreReceptor');
         }
 
-        if(is_numeric($IDReceptor)){
+        if(is_numeric($IDReceptor) || $IDReceptor=="CF"){
             $this->IDReceptor = $IDReceptor;
         }else{
             throw new \Exception('Se requiere IDReceptor');

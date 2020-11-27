@@ -25,6 +25,10 @@ class Factura{
         $this->Emisor = $emisor;
         $this->Receptor = $receptor;
 
+        if($this->datosGenerales->tipo=="FPEQ"){
+            $this->Emisor->AfiliacionIVA = "PEQ";
+        }
+
 
         if(!empty($frases)){
             foreach($frases as $frase){
@@ -118,8 +122,10 @@ class Factura{
                                 <dte:Descripcion>{$item->Descripcion}</dte:Descripcion>
                                 <dte:PrecioUnitario>{$item->PrecioUnitario}</dte:PrecioUnitario>
                                 <dte:Precio>{$item->Precio}</dte:Precio>
-                                <dte:Descuento>{$item->Descuento}</dte:Descuento>
-                                <dte:Impuestos>";
+                                <dte:Descuento>{$item->Descuento}</dte:Descuento>";
+                                if(count($item->Impuestos)>0){
+                                    $XMLS_STRING.="<dte:Impuestos>";
+                                }
                                 foreach($item->Impuestos as $impuesto){
                                     $XMLS_STRING .= "
                                     <dte:Impuesto>
@@ -129,23 +135,30 @@ class Factura{
                                         <dte:MontoImpuesto>{$impuesto->MontoImpuesto}</dte:MontoImpuesto>
                                     </dte:Impuesto>";
                                 }
-                                $XMLS_STRING .= "</dte:Impuestos>
-                                <dte:Total>".($item->Precio-$item->Descuento)."</dte:Total>
+                                if(count($item->Impuestos)>0){
+                                    $XMLS_STRING.="</dte:Impuestos>";
+                                }
+                                $XMLS_STRING .= "<dte:Total>".($item->Precio-$item->Descuento)."</dte:Total>
                             </dte:Item>";
                             }
                             $XMLS_STRING .= "
                         </dte:Items>
-                        <dte:Totales>
-                            <dte:TotalImpuestos>";
+                        <dte:Totales>";
+                            if(count($this->TotalImpuestos)>0){
+                                $XMLS_STRING.="<dte:TotalImpuestos>";
+                            }
                             foreach($this->TotalImpuestos as $NombreCorto => $TotalMontoImpuesto){
                                 $XMLS_STRING .= "<dte:TotalImpuesto NombreCorto=\"{$NombreCorto}\" TotalMontoImpuesto=\"".number_format($TotalMontoImpuesto,4)."\"/>";
                             }
-            $XMLS_STRING .= "</dte:TotalImpuestos>
-                            <dte:GranTotal>".number_format($this->GranTotal,4)."</dte:GranTotal>
+                            if(count($this->TotalImpuestos)>0){
+                                $XMLS_STRING.="</dte:TotalImpuestos>";
+                            }
+            $XMLS_STRING .= "<dte:GranTotal>".number_format($this->GranTotal,4)."</dte:GranTotal>
                         </dte:Totales>
                     </dte:DatosEmision>
-                </dte:DTE>
-                <dte:Adenda>
+                </dte:DTE>";
+                if (!in_array($this->datosGenerales->tipo, ['FPEQ','RECI'])) {
+                    $XMLS_STRING .= "<dte:Adenda>
                  <dtecomm:Informacion_COMERCIAL xmlns:dtecomm=\"https://www.digifact.com.gt/dtecomm\" xsi:schemaLocation=\"https://www.digifact.com.gt/dtecomm\">
                    <dtecomm:InformacionAdicional Version=\"7.1234654163\">
                        <dtecomm:REFERENCIA_INTERNA>{$this->datosGenerales->ReferenciaInterna}</dtecomm:REFERENCIA_INTERNA>
@@ -153,8 +166,9 @@ class Factura{
                        <dtecomm:VALIDAR_REFERENCIA_INTERNA>VALIDAR</dtecomm:VALIDAR_REFERENCIA_INTERNA>
                     </dtecomm:InformacionAdicional>
                     </dtecomm:Informacion_COMERCIAL>
-                 </dte:Adenda>   
-            </dte:SAT>
+                 </dte:Adenda>";
+                }
+                $XMLS_STRING .= "</dte:SAT>
         </dte:GTDocumento>";
         return $XMLS_STRING;
     }
