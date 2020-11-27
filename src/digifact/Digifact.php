@@ -139,7 +139,7 @@ class Digifact
         return $this->AnularOtro($this->Autorizacion, $this->NIT,$this->Factura->Receptor->IDReceptor,$this->Factura->datosGenerales->FechaHoraEmision,$Motivo, $TipoAnulacion);
     }
 
-    private function AnularOtro($NumeroDocumento, $NITEmisor,$IDReceptor,$FechaHoraEmision,$Motivo,$TipoAnulacion="ANULAR_FEL",$FechaHoraAnulacion=false){
+    public function AnularOtro($NumeroDocumento, $NITEmisor,$IDReceptor,$FechaHoraEmision,$Motivo,$TipoAnulacion="ANULAR_FEL",$FechaHoraAnulacion=false){
 
         $DatosAnulacion =new DatosAnulacion($NumeroDocumento, $NITEmisor,$IDReceptor,$FechaHoraEmision,$Motivo,$FechaHoraAnulacion);
         $tools = new Tools();
