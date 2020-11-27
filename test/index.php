@@ -22,15 +22,21 @@ $emisor = new Emisor(44653948,"Allan Bonilla","PEST.CONTROL", $direccionEmisor);
 $direccionReceptor = new Direccion("GUATEMALA",01010,"GUATEMALA","GUATEMALA","GT");
 $receptor = new Receptor("CYBERESPACIO","CF", $direccionReceptor);
 
+
 if($datosGenerales->tipo=="FPEQ"){
     $frases = [ new Frase(3,1)];
     $impuestos = [];
-}else{
+}
+elseif($datosGenerales->tipo=="RECI"){
+    $frases = [ new Frase(4,6)];
+    $impuestos = [];
+}
+else{
     $frases = [ new Frase(1,1)];
     $impuestos = [new Impuesto("IVA",1,10)];
 }
-$impuestos = [];
-$frases = [ new Frase(2,1)];
+// $impuestos = [];
+// $frases = [ new Frase(2,1)];
 
 $productos = [];
 
