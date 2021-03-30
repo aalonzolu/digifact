@@ -11,7 +11,7 @@ use Digifact\models\Receptor;
 
 require('config.php');
 require_once  '../vendor/autoload.php';
-$digifact = new \Digifact\Digifact(DIGIFACT_NIT,DIGIFACT_USERNAME,DIGIFACT_PASSWORD,TRUE);
+$digifact = new \aalonzolu\Digifact\Digifact(DIGIFACT_NIT,DIGIFACT_USERNAME,DIGIFACT_PASSWORD,TRUE);
 
 $referenciaInterna = "FAC_".time();
 $datosGenerales = new DatosGenerales($referenciaInterna,"RECI");
