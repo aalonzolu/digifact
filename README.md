@@ -6,19 +6,19 @@
 ### Uso
 ```
 require_once  './vendor/autoload.php';
-use aalonzolu\Digifact\models\DatosGenerales;
-use aalonzolu\Digifact\models\Direccion;
-use aalonzolu\Digifact\models\Emisor;
-use aalonzolu\Digifact\models\Factura;
-use aalonzolu\Digifact\models\Frase;
-use aalonzolu\Digifact\models\Impuesto;
-use aalonzolu\Digifact\models\Producto;
-use aalonzolu\Digifact\models\Receptor;
+use \aalonzolu\Digifact\models\DatosGenerales;
+use \aalonzolu\Digifact\models\Direccion;
+use \aalonzolu\Digifact\models\Emisor;
+use \aalonzolu\Digifact\models\Factura;
+use \aalonzolu\Digifact\models\Frase;
+use \aalonzolu\Digifact\models\Impuesto;
+use \aalonzolu\Digifact\models\Producto;
+use \aalonzolu\Digifact\models\Receptor;
 ```
 
 Crear instancia de la clase
 ```
-$digifact = new \Digifact\Digifact(DIGIFACT_NIT,DIGIFACT_USERNAME,DIGIFACT_PASSWORD,TRUE);
+$digifact = new \aalonzolu\Digifact\Digifact(DIGIFACT_NIT,DIGIFACT_USERNAME,DIGIFACT_PASSWORD,TRUE);
 ```
 
 Crear datos generales de la factura
