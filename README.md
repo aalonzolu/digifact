@@ -6,14 +6,14 @@
 ### Uso
 ```
 require_once  './vendor/autoload.php';
-use Digifact\models\DatosGenerales;
-use Digifact\models\Direccion;
-use Digifact\models\Emisor;
-use Digifact\models\Factura;
-use Digifact\models\Frase;
-use Digifact\models\Impuesto;
-use Digifact\models\Producto;
-use Digifact\models\Receptor;
+use aalonzolu\Digifact\models\DatosGenerales;
+use aalonzolu\Digifact\models\Direccion;
+use aalonzolu\Digifact\models\Emisor;
+use aalonzolu\Digifact\models\Factura;
+use aalonzolu\Digifact\models\Frase;
+use aalonzolu\Digifact\models\Impuesto;
+use aalonzolu\Digifact\models\Producto;
+use aalonzolu\Digifact\models\Receptor;
 ```
 
 Crear instancia de la clase
