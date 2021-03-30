@@ -1,0 +1,55 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "945da419e10979f5459a873576c27ce4",
+    "packages": [
+        {
+            "name": "aalonzolu/digifact",
+            "version": "v1.1.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/aalonzolu/digifact.git",
+                "reference": "cd6250c714cf29a08a3dcdccc76ec95f6e2dcf32"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/aalonzolu/digifact/zipball/cd6250c714cf29a08a3dcdccc76ec95f6e2dcf32",
+                "reference": "cd6250c714cf29a08a3dcdccc76ec95f6e2dcf32",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=5.4.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-0": {
+                    "Digifact": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Andres Alonzo",
+                    "email": "aalonzolu@gmail.com"
+                }
+            ],
+            "description": "Digifact PHP SDK",
+            "time": "2020-11-27T16:42:03+00:00"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": [],
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": [],
+    "platform-dev": [],
+    "plugin-api-version": "1.1.0"
+}

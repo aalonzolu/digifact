@@ -1,17 +1,20 @@
 <?php
 
-use Digifact\models\DatosGenerales;
-use Digifact\models\Direccion;
-use Digifact\models\Emisor;
-use Digifact\models\Factura;
-use Digifact\models\Frase;
-use Digifact\models\Impuesto;
-use Digifact\models\Producto;
-use Digifact\models\Receptor;
+use aalonzolu\Digifact\Digifact;
+use aalonzolu\Digifact\models\DatosGenerales;
+use aalonzolu\Digifact\models\Direccion;
+use aalonzolu\Digifact\models\Emisor;
+use aalonzolu\Digifact\models\Factura;
+use aalonzolu\Digifact\models\Frase;
+use aalonzolu\Digifact\models\Impuesto;
+use aalonzolu\Digifact\models\Producto;
+use aalonzolu\Digifact\models\Receptor;
 
 require('config.php');
 require_once  '../vendor/autoload.php';
-$digifact = new \aalonzolu\Digifact\Digifact(DIGIFACT_NIT,DIGIFACT_USERNAME,DIGIFACT_PASSWORD,TRUE);
+$digifact = new Digifact(DIGIFACT_NIT,DIGIFACT_USERNAME,DIGIFACT_PASSWORD,TRUE);
+
+$digifact->sandbox = true;
 
 $referenciaInterna = "FAC_".time();
 $datosGenerales = new DatosGenerales($referenciaInterna,"RECI");

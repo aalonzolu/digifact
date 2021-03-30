@@ -1,9 +1,9 @@
 <?php 
 
-namespace Digifact;
+namespace aalonzolu\Digifact;
 
-use Digifact\models\DatosAnulacion;
-use Digifact\models\Factura;
+use aalonzolu\Digifact\models\DatosAnulacion;
+use aalonzolu\Digifact\models\Factura;
 class Digifact
 {
     private $username;
