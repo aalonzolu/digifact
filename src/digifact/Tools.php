@@ -7,6 +7,7 @@ class Tools {
     public $httpcode;
     public function CallAPI($method, $url, $data = false, $headers=[])
     {
+        // echo json_encode($data);exit;
         $curl = curl_init();
         curl_setopt_array($curl, [
             CURLOPT_URL => $url,

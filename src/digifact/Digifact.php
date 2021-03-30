@@ -11,8 +11,8 @@ class Digifact
     private $NIT;
     private $token;
     private $endpointUrl;
-    private $Factura;
-    public $sandbox=true;
+    public $Factura;
+    public $sandbox=false;
     public $Autorizacion;
     public $Serie;
     public $NUMERO;
@@ -48,14 +48,14 @@ class Digifact
         if($this->sandbox){
             $this->endpointUrl = 'https://felgttestaws.digifact.com.gt/felapiv2/api/';
         }else{
-            $this->endpointUrl = 'https://felgttestaws.digifact.com.gt/felapiv2/api/';
+            $this->endpointUrl = 'https://felgtaws.digifact.com.gt/gt.com.fel.api.v2/api/';
         }
         /**
          * send credentials to digifact and get token
          */
         $responseApi = $tools->CallAPI("POST", $this->endpointUrl."login/get_token",[
-            'Username'=>$this->username,
-            'Password'=>$this->password
+            'username'=>$this->username,
+            'password'=>$this->password
         ]);
         if(isset($responseApi->Token)){
             // token success
@@ -63,7 +63,7 @@ class Digifact
         }else{
             //trow error
             if(isset($responseApi->description)){
-                throw new \Error($responseApi->description);
+                throw new \Error("FEL AUTH: ".$responseApi->description);
             }else{
                 throw new \Error("Ha ocurrido un error inesperado conectandose a Digifact");
             } 
@@ -82,6 +82,8 @@ class Digifact
                 "Authorization: {$this->token}"
             ]
         );
+        // echo $factura->toXML();exit;
+        // echo json_encode($responseApi);exit;
         if(isset($responseApi->Codigo) and $responseApi->Codigo==1){
             $this->xml = $responseApi->ResponseDATA1;
             $this->html = $responseApi->ResponseDATA2;
@@ -94,8 +96,11 @@ class Digifact
         }
         else{
             //trow error
-            if(isset($responseApi->Mensaje)){
-                throw new \Error($responseApi->Mensaje);
+            if (isset($responseApi->ResponseDATA1)) {
+                throw new \Error("FEL DTE2S: \n".$responseApi->ResponseDATA1);
+            }
+            else if(isset($responseApi->Mensaje)){
+                throw new \Error("FEL DTE2S: ".$responseApi->Mensaje);
             }else{
                 throw new \Error("Ha ocurrido un error inesperado conectandose a Digifact");
             } 
@@ -124,27 +129,28 @@ class Digifact
         }
         else{
             //trow error
-            if(isset($responseApi->Mensaje)){
-                throw new \Error($responseApi->Mensaje);
+            if (isset($responseApi->ResponseDATA1)) {
+                throw new \Error("FEL DTE: ".$responseApi->ResponseDATA1);
+            }
+            else if(isset($responseApi->Mensaje)){
+                throw new \Error("FEL DTE: ".$responseApi->Mensaje);
             }else{
                 throw new \Error("Ha ocurrido un error inesperado conectandose a Digifact");
             } 
         }
     }
 
-    public function Anular($Motivo, $TipoAnulacion="ANULAR_FEL"){
+    public function Anular($Motivo, $TipoAnulacion="ANULAR_FEL_TOSIGN"){
         if(!in_array($TipoAnulacion,["ANULAR_FEL_TOSIGN","ANULAR_FEL"])){
             throw new \Error("TipoAnulacion solo puede ser ANULAR_FEL_TOSIGN o ANULAR_FEL");
         }
         return $this->AnularOtro($this->Autorizacion, $this->NIT,$this->Factura->Receptor->IDReceptor,$this->Factura->datosGenerales->FechaHoraEmision,$Motivo, $TipoAnulacion);
     }
 
-    public function AnularOtro($NumeroDocumento, $NITEmisor,$IDReceptor,$FechaHoraEmision,$Motivo,$TipoAnulacion="ANULAR_FEL",$FechaHoraAnulacion=false){
+    public function AnularOtro($NumeroDocumento, $NITEmisor,$IDReceptor,$FechaHoraEmision,$Motivo,$TipoAnulacion="ANULAR_FEL_TOSIGN",$FechaHoraAnulacion=false){
 
         $DatosAnulacion =new DatosAnulacion($NumeroDocumento, $NITEmisor,$IDReceptor,$FechaHoraEmision,$Motivo,$FechaHoraAnulacion);
         $tools = new Tools();
-        // echo $DatosAnulacion->toXML();exit;
-        // echo $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO={$TipoAnulacion}&FORMAT=XML";exit;
         $responseApi = $tools->CallAPI(
             "POST", 
             $this->endpointUrl."FelRequest?NIT={$this->NIT}&TIPO={$TipoAnulacion}&FORMAT=XML",
