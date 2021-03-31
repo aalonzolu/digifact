@@ -19,6 +19,8 @@ class Digifact
     public $pdf =false;
     public $xml =false;
     public $html =false;
+    
+    private $tools;
 
 
     const DATE_FORMAT = '%y-%m-%dT%';
@@ -44,7 +46,7 @@ class Digifact
         $this->NIT =str_pad($NIT, 12, '0', STR_PAD_LEFT);
         $this->username = $username;
         $this->password = $password;
-        $tools = new Tools();
+        $this->tools = new Tools();
         if($this->sandbox){
             $this->endpointUrl = 'https://felgttestaws.digifact.com.gt/felapiv2/api/';
         }else{
@@ -53,7 +55,7 @@ class Digifact
         /**
          * send credentials to digifact and get token
          */
-        $responseApi = $tools->CallAPI("POST", $this->endpointUrl."login/get_token",[
+        $responseApi = $this->tools->CallAPI("POST", $this->endpointUrl."login/get_token",[
             'username'=>$this->username,
             'password'=>$this->password
         ]);
@@ -68,6 +70,41 @@ class Digifact
                 throw new \Error("Ha ocurrido un error inesperado conectandose a Digifact");
             } 
         }
+    }
+
+    /**
+     * Consultar información de NIT
+     * Permite la obtención de la información del cliente, solo con el Número de Identificación Tributaria (NIT). 
+     * Este va ligado a la información directa que nos envía SAT a nuestra base de datos
+     *
+     * @param [type] $NITConsultar
+     * @return void
+     */
+    public function NITInfo($NITConsultar){
+        $responseApi = $this->tools->CallAPI(
+            "GET", 
+            $this->endpointUrl."SHAREDINFO?NIT={$this->NIT}&DATA1=SHARED_GETINFONITCOM=DATA2=NIT{$NITConsultar}&USERNAME={$this->username}",
+            [],
+            [
+                "Content-Type: application/json",
+                "Authorization: {$this->token}"
+            ]
+        );
+
+        return $responseApi;
+    }
+
+    public function DTEInfo($Autorizacion){
+        $responseApi = $this->tools->CallAPI(
+            "GET", 
+            $this->endpointUrl."SHAREDINFO?NIT={$this->NIT}&DATA1=SHARED_GETDTEINFO=DATA2=AUTHNUMBER{$Autorizacion}&USERNAME={$this->username}",
+            [],
+            [
+                "Content-Type: application/json",
+                "Authorization: {$this->token}"
+            ]
+        );
+        return $responseApi;
     }
 
     public function CertificateDTEToSign(Factura $factura){
