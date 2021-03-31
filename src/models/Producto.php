@@ -1,5 +1,5 @@
 <?php
-namespace Digifact\models;
+namespace aalonzolu\Digifact\models;
 class Producto {
     public $Cantidad;
     public $UnidadMedida;

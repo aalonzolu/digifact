@@ -1,5 +1,5 @@
 <?php
-namespace Digifact\models;
+namespace aalonzolu\Digifact\models;
 class Impuesto{
     public $NombreCorto;
     public $CodigoUnidadGravable;

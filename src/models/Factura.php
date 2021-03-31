@@ -1,6 +1,6 @@
 <?php
 
-namespace Digifact\models;
+namespace aalonzolu\Digifact\models;
 
 class Factura{
     public $datosGenerales;

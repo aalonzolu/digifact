@@ -14,10 +14,13 @@ require('config.php');
 require_once  '../vendor/autoload.php';
 $digifact = new Digifact(DIGIFACT_NIT,DIGIFACT_USERNAME,DIGIFACT_PASSWORD,TRUE);
 
-$digifact->sandbox = true;
+$digifact->sandbox = false;
 
 $referenciaInterna = "FAC_".time();
 $datosGenerales = new DatosGenerales($referenciaInterna,"RECI");
+
+$emisor = $digifact->NITInfo("3868261-3");
+echo json_encode($emisor);exit;
 
 $direccionEmisor = new Direccion("RN9N",1301,"Huehuetenango","Huehuetenango","GT");
 $emisor = new Emisor(44653948,"Allan Bonilla","PEST.CONTROL", $direccionEmisor);
@@ -55,13 +58,13 @@ if(isset($_GET['xml'])){
 // $digifact->CertificateDTEToSign($factura);
 // $response_anular = $digifact->Anular("Solo son pruebas","ANULAR_FEL_TOSIGN");
 // var_dump($response_anular);
-if($digifact->CertificateDTEToSign($factura)){
-    // echo "Wiii";
-    $data = base64_decode($digifact->pdf);
-    header('Content-Type: application/pdf');
-    echo $data;
+// if($digifact->CertificateDTEToSign($factura)){
+//     // echo "Wiii";
+//     $data = base64_decode($digifact->pdf);
+//     header('Content-Type: application/pdf');
+//     echo $data;
 
 
-    // $response_anular = $digifact->Anular("Solo son pruebas");
-    // var_dump($response_anular);
-}
+//     // $response_anular = $digifact->Anular("Solo son pruebas");
+//     // var_dump($response_anular);
+// }
