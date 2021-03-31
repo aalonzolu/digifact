@@ -14,18 +14,19 @@ require('config.php');
 require_once  '../vendor/autoload.php';
 $digifact = new Digifact(DIGIFACT_NIT,DIGIFACT_USERNAME,DIGIFACT_PASSWORD,TRUE);
 
-$digifact->sandbox = false;
+$digifact->sandbox = true;
 
 $referenciaInterna = "FAC_".time();
 $datosGenerales = new DatosGenerales($referenciaInterna,"RECI");
 
-$emisor = $digifact->NITInfo("3868261-3");
-echo json_encode($emisor);exit;
 
-$direccionEmisor = new Direccion("RN9N",1301,"Huehuetenango","Huehuetenango","GT");
-$emisor = new Emisor(44653948,"Allan Bonilla","PEST.CONTROL", $direccionEmisor);
+$emisorData = $digifact->NITInfo("2264501");
+$direccionEmisor = new Direccion($emisorData->Direccion,1301,$emisorData->DEPARTAMENTO, $emisorData->MUNICIPIO, $emisorData->PAIS);
+$emisor = new Emisor($emisorData->NIT,$emisorData->NOMBRE,"PEST.CONTROL", $direccionEmisor);
 
-$direccionReceptor = new Direccion("GUATEMALA",01010,"GUATEMALA","GUATEMALA","GT");
+
+$receptorData = $digifact->NITInfo("2264501");
+$direccionEmisor = new Direccion($emisorData->Direccion,01010,$emisorData->DEPARTAMENTO, $emisorData->MUNICIPIO, $emisorData->PAIS);
 $receptor = new Receptor("CYBERESPACIO","CF", $direccionReceptor);
 
 

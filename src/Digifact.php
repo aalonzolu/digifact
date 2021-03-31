@@ -11,6 +11,7 @@ class Digifact
     private $NIT;
     private $token;
     private $endpointUrl;
+    private $endpointUrlv3;
     public $Factura;
     public $sandbox=false;
     public $Autorizacion;
@@ -49,8 +50,10 @@ class Digifact
         $this->tools = new Tools();
         if($this->sandbox){
             $this->endpointUrl = 'https://felgttestaws.digifact.com.gt/felapiv2/api/';
+            $this->endpointUrlv3 = 'https://felgttestaws.digifact.com.gt/gt.com.fel.api.v3/api/';
         }else{
             $this->endpointUrl = 'https://felgtaws.digifact.com.gt/gt.com.fel.api.v2/api/';
+            $this->endpointUrlv3 = 'https://felgtaws.digifact.com.gt/gt.com.fel.api.v3/api/';
         }
         /**
          * send credentials to digifact and get token
@@ -78,20 +81,31 @@ class Digifact
      * Este va ligado a la información directa que nos envía SAT a nuestra base de datos
      *
      * @param [type] $NITConsultar
-     * @return void
+     * @return object
      */
     public function NITInfo($NITConsultar){
+        // $this->NIT = "000044653948";
+        // $this->sandbox = true;
+        $url = $this->endpointUrlv3."SHAREDINFO?NIT={$this->NIT}&DATA1=SHARED_GETINFONITcom=DATA2=NIT|{$NITConsultar}&USERNAME={$this->username}";
+        $url = "https://felgttestaws.digifact.com.gt/gt.com.fel.api.v3/api/SHAREDINFO?NIT=000044653948&DATA1=SHARED_GETINFONITcom&DATA2=NIT|{$NITConsultar}&USERNAME=La_Lechita";
         $responseApi = $this->tools->CallAPI(
             "GET", 
-            $this->endpointUrl."SHAREDINFO?NIT={$this->NIT}&DATA1=SHARED_GETINFONITCOM=DATA2=NIT{$NITConsultar}&USERNAME={$this->username}",
+            $url,
             [],
             [
                 "Content-Type: application/json",
                 "Authorization: {$this->token}"
             ]
         );
-
-        return $responseApi;
+        if(count($responseApi->RESPONSE) == 0){
+            if(isset($responseApi->REQUEST[0]) and isset($responseApi->REQUEST[0]->Mensaje)){
+                // echo json_encode($responseApi->REQUEST[0]);exit;
+                throw new \Error("FEL INFONIT: ".$responseApi->REQUEST[0]->Mensaje);
+            }else{
+                throw new \Error("FEL INFONIT: Error desconocido");
+            }
+        }
+        return $responseApi->RESPONSE[0];
     }
 
     public function DTEInfo($Autorizacion){
