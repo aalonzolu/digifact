@@ -36,7 +36,7 @@ class Digifact
      * @param [type] $password
      * @param boolean $debug
      */
-    public function __construct($NIT,$username, $password, $debug=false)
+    public function __construct($NIT,$username, $password, $sandbox = true, $debug=false)
     {
         if($debug){
             ini_set('display_errors', 1);
@@ -48,6 +48,7 @@ class Digifact
         $this->username = $username;
         $this->password = $password;
         $this->tools = new Tools();
+        $this->sandbox = $sandbox;
         if($this->sandbox){
             $this->endpointUrl = 'https://felgttestaws.digifact.com.gt/felapiv2/api/';
             $this->endpointUrlv3 = 'https://felgttestaws.digifact.com.gt/gt.com.fel.api.v3/api/';

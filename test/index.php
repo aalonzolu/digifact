@@ -12,7 +12,7 @@ use aalonzolu\Digifact\models\Receptor;
 
 require('config.php');
 require_once  '../vendor/autoload.php';
-$digifact = new Digifact(DIGIFACT_NIT,DIGIFACT_USERNAME,DIGIFACT_PASSWORD,TRUE);
+$digifact = new Digifact(DIGIFACT_NIT,DIGIFACT_USERNAME,DIGIFACT_PASSWORD,TRUE,TRUE);
 
 $digifact->sandbox = true;
 
@@ -26,7 +26,7 @@ $emisor = new Emisor($emisorData->NIT,$emisorData->NOMBRE,"PEST.CONTROL", $direc
 
 
 $receptorData = $digifact->NITInfo("2264501");
-$direccionEmisor = new Direccion($emisorData->Direccion,01010,$emisorData->DEPARTAMENTO, $emisorData->MUNICIPIO, $emisorData->PAIS);
+$direccionReceptor = new Direccion($receptorData->Direccion,01010,$receptorData->DEPARTAMENTO, $receptorData->MUNICIPIO, $receptorData->PAIS);
 $receptor = new Receptor("CYBERESPACIO","CF", $direccionReceptor);
 
 
