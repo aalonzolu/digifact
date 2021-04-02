@@ -21,6 +21,7 @@ $datosGenerales = new DatosGenerales($referenciaInterna,"RECI");
 
 
 $emisorData = $digifact->NITInfo("2264501");
+// echo json_encode($emisorData);exit;
 $direccionEmisor = new Direccion($emisorData->Direccion,1301,$emisorData->DEPARTAMENTO, $emisorData->MUNICIPIO, $emisorData->PAIS);
 $emisor = new Emisor($emisorData->NIT,$emisorData->NOMBRE,"PEST.CONTROL", $direccionEmisor);
 
@@ -56,6 +57,7 @@ $factura = new Factura($datosGenerales, $emisor, $receptor, $frases, $productos)
 if(isset($_GET['xml'])){
     echo $factura->toXML();exit;
 }
+
 // $digifact->CertificateDTEToSign($factura);
 // $response_anular = $digifact->Anular("Solo son pruebas","ANULAR_FEL_TOSIGN");
 // var_dump($response_anular);
