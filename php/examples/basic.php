@@ -51,9 +51,9 @@ try {
 }
 
 // ── FACT NIT ──
-echo "\nEmitting FACT to NIT 12345678...\n";
+echo "\nEmitting FACT to NIT 77454820...\n";
 try {
-    $result2 = $client->invoice('12345678', [
+    $result2 = $client->invoice('77454820', [
         ['description' => 'Laptop', 'qty' => 1, 'price' => 5000.00, 'type' => 'Bien'],
         ['description' => 'Soporte anual', 'qty' => 1, 'price' => 500.00],
     ]);
@@ -63,9 +63,9 @@ try {
 }
 
 // ── NIT Lookup ──
-echo "\nLooking up NIT 12345678...\n";
+echo "\nLooking up NIT 77454820...\n";
 try {
-    $info = $client->lookupNit('12345678');
+    $info = $client->lookupNit('77454820');
     echo "  name    : {$info['name']}\n";
     echo "  address : {$info['address']}\n";
 } catch (DigifactException $e) {

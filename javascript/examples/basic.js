@@ -45,9 +45,9 @@ try {
 }
 
 // ── FACT NIT ──
-console.log('\nEmitting FACT to NIT 12345678...');
+console.log('\nEmitting FACT to NIT 77454820...');
 try {
-  const result2 = await client.invoice('12345678', [
+  const result2 = await client.invoice('77454820', [
     { description: 'Laptop', qty: 1, price: 5000, type: 'Bien' },
     { description: 'Soporte anual', qty: 1, price: 500 },
   ]);
@@ -57,9 +57,9 @@ try {
 }
 
 // ── NIT Lookup ──
-console.log('\nLooking up NIT 12345678...');
+console.log('\nLooking up NIT 77454820...');
 try {
-  const info = await client.lookupNit('12345678');
+  const info = await client.lookupNit('77454820');
   console.log(`  name    : ${info.name}`);
   console.log(`  address : ${info.address}`);
 } catch (err) {

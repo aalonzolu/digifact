@@ -48,10 +48,10 @@ except DigifactError as exc:
     sys.exit(1)
 
 # ── FACT NIT ──
-print("\nEmitting FACT to NIT 12345678...")
+print("\nEmitting FACT to NIT 77454820...")
 try:
     result2 = client.invoice(
-        buyer="12345678",
+        buyer="77454820",
         items=[
             {"description": "Laptop", "qty": 1, "price": 5000.00, "type": "Bien"},
             {"description": "Soporte anual", "qty": 1, "price": 500.00},
@@ -62,9 +62,9 @@ except DigifactError as exc:
     print(f"  ERROR: {exc}")
 
 # ── Lookup NIT ──
-print("\nLooking up NIT 12345678...")
+print("\nLooking up NIT 77454820...")
 try:
-    info = client.lookup_nit("12345678")
+    info = client.lookup_nit("77454820")
     print(f"  name    : {info['name']}")
     print(f"  address : {info['address']}")
 except DigifactError as exc:
