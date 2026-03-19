@@ -1,0 +1,22 @@
+{
+  "name": "digifact-fel",
+  "version": "2.0.0",
+  "description": "JavaScript SDK for Digifact FEL Guatemala e-invoicing API",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --test tests/integration.test.js",
+    "test:unit": "node --test --test-name-pattern='Unit' tests/integration.test.js",
+    "example": "node examples/basic.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["digifact", "fel", "guatemala", "factura", "e-invoicing", "sat"],
+  "author": "AALONZOLU",
+  "license": "MIT",
+  "dependencies": {}
+}

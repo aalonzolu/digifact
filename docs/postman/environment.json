@@ -1,0 +1,44 @@
+{
+  "id": "digifact-fel-nuc-gt-test-template",
+  "name": "Digifact FEL NUC GT - TEST (template)",
+  "values": [
+    {
+      "key": "base_url",
+      "value": "https://testnucgt.digifact.com/api",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "buyer_taxid",
+      "value": "00000123",
+      "type": "default",
+      "enabled": true
+    },
+    {      
+      "key": "seller_taxid",
+      "value": "01010101",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "username",
+      "value": "FELUSER",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "password",
+      "value": "PASSWORD",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment",
+  "_postman_exported_at": "2026-03-19T00:00:00.000Z"
+}

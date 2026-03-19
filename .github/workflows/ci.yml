@@ -1,0 +1,187 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths:
+      - 'python/**'
+      - 'php/**'
+      - 'javascript/**'
+      - 'scripts/validate_sdks.py'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'python/**'
+      - 'php/**'
+      - 'javascript/**'
+
+jobs:
+  # ── Python SDK ──────────────────────────────────────────────────────────────
+  python-unit:
+    name: Python ${{ matrix.python-version }} — unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: pip install -e "python/[dev]"
+
+      - name: Unit tests
+        working-directory: python
+        run: python -m pytest tests/ -v -k "Unit"
+
+  python-integration:
+    name: Python — integration tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.event.repository.fork == false }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -e "python/[dev]"
+
+      - name: Integration tests
+        working-directory: python
+        env:
+          DIGIFACT_TAXID: ${{ secrets.DIGIFACT_TAXID }}
+          DIGIFACT_USERNAME: ${{ secrets.DIGIFACT_USERNAME }}
+          DIGIFACT_PASSWORD: ${{ secrets.DIGIFACT_PASSWORD }}
+        run: python -m pytest tests/ -v --timeout=300
+
+  # ── PHP SDK ─────────────────────────────────────────────────────────────────
+  php-unit:
+    name: PHP ${{ matrix.php-version }} — unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ["8.1", "8.2", "8.3"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: curl, bcmath, json
+          tools: composer
+
+      - name: Install dependencies
+        working-directory: php
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Unit tests
+        working-directory: php
+        run: ./vendor/bin/phpunit tests/ --filter "testPad|testCalc|testFmt|testDteResult"
+
+  php-integration:
+    name: PHP — integration tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.event.repository.fork == false }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: curl, bcmath, json
+          tools: composer
+
+      - name: Install dependencies
+        working-directory: php
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Integration tests
+        working-directory: php
+        env:
+          DIGIFACT_TAXID: ${{ secrets.DIGIFACT_TAXID }}
+          DIGIFACT_USERNAME: ${{ secrets.DIGIFACT_USERNAME }}
+          DIGIFACT_PASSWORD: ${{ secrets.DIGIFACT_PASSWORD }}
+        run: ./vendor/bin/phpunit tests/ --testdox
+
+  # ── JavaScript SDK ──────────────────────────────────────────────────────────
+  javascript-unit:
+    name: Node ${{ matrix.node-version }} — unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["18", "20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Unit tests
+        working-directory: javascript
+        run: node --test --test-name-pattern="Unit" tests/integration.test.js
+
+  javascript-integration:
+    name: Node — integration tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.event.repository.fork == false }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Integration tests
+        working-directory: javascript
+        env:
+          DIGIFACT_TAXID: ${{ secrets.DIGIFACT_TAXID }}
+          DIGIFACT_USERNAME: ${{ secrets.DIGIFACT_USERNAME }}
+          DIGIFACT_PASSWORD: ${{ secrets.DIGIFACT_PASSWORD }}
+        run: node --test tests/integration.test.js
+
+  # ── Validate all examples ───────────────────────────────────────────────────
+  validate-examples:
+    name: Validate SDK examples
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.event.repository.fork == false }}
+    needs: [python-unit, php-unit, javascript-unit]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: curl, bcmath, json
+          tools: composer
+
+      - name: Install Python SDK
+        run: pip install -e "python/"
+
+      - name: Install PHP dependencies
+        working-directory: php
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Validate all SDK examples
+        env:
+          DIGIFACT_TAXID: ${{ secrets.DIGIFACT_TAXID }}
+          DIGIFACT_USERNAME: ${{ secrets.DIGIFACT_USERNAME }}
+          DIGIFACT_PASSWORD: ${{ secrets.DIGIFACT_PASSWORD }}
+        run: python scripts/validate_sdks.py

@@ -1,0 +1,39 @@
+{
+    "name": "aalonzolu/digifact",
+    "description": "PHP SDK for Digifact FEL Guatemala e-invoicing API (v2)",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "AALONZOLU",
+            "role": "Developer"
+        }
+    ],
+    "keywords": ["digifact", "fel", "guatemala", "factura", "e-invoicing", "sat"],
+    "require": {
+        "php": ">=8.1",
+        "ext-curl": "*",
+        "ext-bcmath": "*",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10 || ^11"
+    },
+    "autoload": {
+        "psr-4": {
+            "Digifact\\Fel\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit tests/"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}

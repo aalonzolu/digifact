@@ -1,0 +1,1514 @@
+{
+  "info": {
+    "name": "Digifact FEL NUC GT - JSON Only",
+    "description": "Colección Postman JSON-only para Digifact FEL NUC GT. Consultas Shared/GetDocument, CERTIFICATE NCRED y CancelFelGT.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const taxid = (pm.environment.get('seller_taxid') || '').toString().trim();",
+          "const username = (pm.environment.get('username') || '').toString().trim();",
+          "const digits = taxid.replace(/\\D/g, '');",
+          "const padded = digits.padStart(12, '0');",
+          "pm.collectionVariables.set('taxid_padded', padded);",
+          "pm.collectionVariables.set('full_username', `GT.${padded}.${username}`);",
+          "function partsInTZ(timeZone) {",
+          "  const d = new Date();",
+          "  const parts = new Intl.DateTimeFormat('sv-SE', { timeZone, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }).formatToParts(d).reduce((acc, p) => { if (p.type !== 'literal') acc[p.type] = p.value; return acc; }, {});",
+          "  return parts;",
+          "}",
+          "const gt = partsInTZ('America/Guatemala');",
+          "const issueDateTime = `${gt.year}-${gt.month}-${gt.day}T${gt.hour}:${gt.minute}:${gt.second}-06:00`;",
+          "const issueDateOnly = `${gt.year}-${gt.month}-${gt.day}`;",
+          "const issueDateTimeSpace = `${gt.year}-${gt.month}-${gt.day} ${gt.hour}:${gt.minute}:${gt.second}`;",
+          "pm.collectionVariables.set('issue_datetime_gt', issueDateTime);",
+          "pm.collectionVariables.set('issue_date_gt', issueDateOnly);",
+          "pm.collectionVariables.set('issue_datetime_space_gt', issueDateTimeSpace);",
+          "if (!pm.collectionVariables.get('cancel_authnumber') && pm.collectionVariables.get('last_authnumber')) pm.collectionVariables.set('cancel_authnumber', pm.collectionVariables.get('last_authnumber'));",
+          "if (!pm.collectionVariables.get('cancel_receiver_id') && pm.collectionVariables.get('last_receiver_id')) pm.collectionVariables.set('cancel_receiver_id', pm.collectionVariables.get('last_receiver_id'));",
+          "if (!pm.collectionVariables.get('cancel_issue_datetime') && pm.collectionVariables.get('last_issue_datetime')) pm.collectionVariables.set('cancel_issue_datetime', pm.collectionVariables.get('last_issue_datetime'));"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 - Autenticación",
+      "item": [
+        {
+          "name": "Login - Get Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/login/get_token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "login",
+                "get_token"
+              ]
+            },
+            "description": "Obtiene el token JWT usando Username completo GT.<NIT a 12 dígitos>.<usuario> y Password en JSON.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Username\": \"{{full_username}}\",\n  \"Password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {}; try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "const token = body.Token || body.token || body.Authorization || body.authorization || '';",
+                  "if (token) pm.environment.set('token', token);",
+                  "pm.test('Se obtuvo token o el cuerpo expone un error legible', function () { pm.expect(token || body.message || body.Message || body.description || body.Description).to.exist; });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 - Certificación DTE (JSON)",
+      "item": [
+        {
+          "name": "FACT - Consumidor Final",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Ejemplo JSON NUC de FACT a Consumidor Final. Incluye AdditionalDocumentInfo/ADENDA igual que el ejemplo oficial.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"FACT\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\"\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [\n      {\n        \"Name\": \"AfiliacionIVA\",\n        \"Data\": null,\n        \"Value\": \"GEN\"\n      }\n    ],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    },\n    \"Contact\": {\n      \"EmailList\": {\n        \"Email\": [\n          \"fel@example.com\"\n        ]\n      }\n    },\n    \"AdditionlInfo\": [\n      {\n        \"Name\": \"TipoFrase\",\n        \"Data\": \"1\",\n        \"Value\": \"1\"\n      },\n      {\n        \"Name\": \"Escenario\",\n        \"Data\": \"1\",\n        \"Value\": \"1\"\n      }\n    ]\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_cf_id}}\",\n    \"Name\": \"{{buyer_cf_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"{{buyer_cf_address}}\",\n      \"City\": \"{{buyer_cf_city}}\",\n      \"District\": \"{{buyer_cf_district}}\",\n      \"State\": \"{{buyer_cf_state}}\",\n      \"Country\": \"{{buyer_cf_country}}\"\n    }\n  },\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Servicio\",\n      \"Description\": \"Servicio de prueba\",\n      \"Qty\": \"1.000000\",\n      \"UnitOfMeasure\": \"SER\",\n      \"Price\": \"31.000000\",\n      \"Discounts\": null,\n      \"Taxes\": {\n        \"Tax\": [\n          {\n            \"Code\": \"1\",\n            \"Description\": \"IVA\",\n            \"TaxableAmount\": \"27.678571\",\n            \"Amount\": \"3.321428\"\n          }\n        ]\n      },\n      \"Totals\": {\n        \"TotalItem\": \"31.000000\"\n      }\n    },\n    {\n      \"Number\": \"2\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"Jeans\",\n      \"Qty\": \"1.000000\",\n      \"UnitOfMeasure\": \"UNI\",\n      \"Price\": \"600.000000\",\n      \"Discounts\": null,\n      \"Taxes\": {\n        \"Tax\": [\n          {\n            \"Code\": \"1\",\n            \"Description\": \"IVA\",\n            \"TaxableAmount\": \"535.714286\",\n            \"Amount\": \"64.285714\"\n          }\n        ]\n      },\n      \"Totals\": {\n        \"TotalItem\": \"600.000000\"\n      }\n    }\n  ],\n  \"Totals\": {\n    \"TotalTaxes\": {\n      \"TotalTax\": [\n        {\n          \"Description\": \"IVA\",\n          \"Amount\": \"67.607142\"\n        }\n      ]\n    },\n    \"GrandTotal\": {\n      \"InvoiceTotal\": \"631.000000\"\n    }\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [\n      {\n        \"Code\": \"FRONT-263C-444B-89BA-6F87EC1330C0\",\n        \"Type\": \"ADENDA\",\n        \"AditionalData\": {\n          \"Data\": [\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"OBSERVACIONES\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CANTIDAD_LETRAS\",\n                  \"Data\": null,\n                  \"Value\": \"SEISCIENTOS TREINTA Y UN QUETZALES CON 00/100\"\n                }\n              ],\n              \"Name\": \"INFORMACION_ADICIONAL\"\n            },\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"NumeroLinea\",\n                  \"Data\": null,\n                  \"Value\": \"1\"\n                },\n                {\n                  \"Name\": \"Descripcion_Adicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CodigoEAN\",\n                  \"Data\": null,\n                  \"Value\": \"00011\"\n                },\n                {\n                  \"Name\": \"CategoriaAdicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                }\n              ],\n              \"Name\": \"DetallesAux_Detalle\"\n            },\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"NumeroLinea\",\n                  \"Data\": null,\n                  \"Value\": \"2\"\n                },\n                {\n                  \"Name\": \"Descripcion_Adicional\",\n                  \"Data\": null,\n                  \"Value\": \"---\"\n                },\n                {\n                  \"Name\": \"CodigoEAN\",\n                  \"Data\": null,\n                  \"Value\": \"000113\"\n                },\n                {\n                  \"Name\": \"CategoriaAdicional\",\n                  \"Data\": null,\n                  \"Value\": \"11\"\n                }\n              ],\n              \"Name\": \"DetallesAux_Detalle\"\n            }\n          ]\n        },\n        \"AditionalInfo\": [\n          {\n            \"Name\": \"VALIDAR_REFERENCIA_INTERNA\",\n            \"Data\": null,\n            \"Value\": \"NO_VALIDAR\"\n          }\n        ]\n      }\n    ]\n  },\n  \"ThirdParties\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));",
+                  "pm.collectionVariables.set(\"last_receiver_id\", \"CF\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FACT - Receptor con CUI",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Ejemplo JSON NUC de FACT con CUI. Incluye AdditionalDocumentInfo/ADENDA igual que el ejemplo oficial.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"FACT\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\"\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [\n      {\n        \"Name\": \"AfiliacionIVA\",\n        \"Data\": null,\n        \"Value\": \"GEN\"\n      }\n    ],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    },\n    \"AdditionlInfo\": [\n      {\n        \"Name\": \"TipoFrase\",\n        \"Data\": \"1\",\n        \"Value\": \"1\"\n      },\n      {\n        \"Name\": \"Escenario\",\n        \"Data\": \"1\",\n        \"Value\": \"1\"\n      }\n    ]\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_cui_id}}\",\n    \"TaxIDType\": \"CUI\",\n    \"Name\": \"{{buyer_cui_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"CIUDAD\",\n      \"City\": \"01010\",\n      \"District\": \"GUATEMALA\",\n      \"State\": \"GUATEMALA\",\n      \"Country\": \"GT\"\n    }\n  },\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"LLANTAS 90/90-17 TL DOBLE PROPOSITO\",\n      \"Qty\": \"1.000000\",\n      \"UnitOfMeasure\": \"UNO\",\n      \"Price\": \"190.000000\",\n      \"Discounts\": null,\n      \"Taxes\": {\n        \"Tax\": [\n          {\n            \"Code\": \"1\",\n            \"Description\": \"IVA\",\n            \"TaxableAmount\": \"169.642857\",\n            \"Amount\": \"20.357143\"\n          }\n        ]\n      },\n      \"Totals\": {\n        \"TotalItem\": \"190.000000\"\n      }\n    }\n  ],\n  \"Totals\": {\n    \"TotalTaxes\": {\n      \"TotalTax\": [\n        {\n          \"Description\": \"IVA\",\n          \"Amount\": \"20.357143\"\n        }\n      ]\n    },\n    \"GrandTotal\": {\n      \"InvoiceTotal\": \"190.000000\"\n    }\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [\n      {\n        \"Code\": \"FRONT-263C-444B-89BA-6F87EC1330C0\",\n        \"Type\": \"ADENDA\",\n        \"AditionalData\": {\n          \"Data\": [\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"OBSERVACIONES\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CANTIDAD_LETRAS\",\n                  \"Data\": null,\n                  \"Value\": \"CIENTO NOVENTA QUETZALES CON 00/100\"\n                }\n              ],\n              \"Name\": \"INFORMACION_ADICIONAL\"\n            },\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"NumeroLinea\",\n                  \"Data\": null,\n                  \"Value\": \"1\"\n                },\n                {\n                  \"Name\": \"Descripcion_Adicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CodigoEAN\",\n                  \"Data\": null,\n                  \"Value\": \"00015\"\n                },\n                {\n                  \"Name\": \"CategoriaAdicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                }\n              ],\n              \"Name\": \"DetallesAux_Detalle\"\n            }\n          ]\n        },\n        \"AditionalInfo\": [\n          {\n            \"Name\": \"VALIDAR_REFERENCIA_INTERNA\",\n            \"Data\": null,\n            \"Value\": \"NO_VALIDAR\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));",
+                  "pm.collectionVariables.set(\"last_receiver_id\", \"3730617490101\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FCAM - Factura Cambiaria",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Ejemplo JSON NUC de FCAM con complemento cambiaria y adenda.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"FCAM\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\"\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [\n      {\n        \"Name\": \"AfiliacionIVA\",\n        \"Data\": null,\n        \"Value\": \"GEN\"\n      }\n    ],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    },\n    \"AdditionlInfo\": [\n      {\n        \"Name\": \"TipoFrase\",\n        \"Data\": \"1\",\n        \"Value\": \"1\"\n      },\n      {\n        \"Name\": \"Escenario\",\n        \"Data\": \"1\",\n        \"Value\": \"1\"\n      }\n    ]\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_nit_id}}\",\n    \"Name\": \"{{buyer_nit_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"{{buyer_nit_address}}\",\n      \"City\": \"{{buyer_nit_city}}\",\n      \"District\": \"{{buyer_nit_district}}\",\n      \"State\": \"{{buyer_nit_state}}\",\n      \"Country\": \"{{buyer_nit_country}}\"\n    },\n    \"Contact\": {\n      \"EmailList\": {\n        \"Email\": [\n          \"comprador@example.com\"\n        ]\n      }\n    }\n  },\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Servicio\",\n      \"Description\": \"Servicio de prueba\",\n      \"Qty\": \"1.000000\",\n      \"UnitOfMeasure\": \"SER\",\n      \"Price\": \"30.000000\",\n      \"Discounts\": {\n        \"Discount\": [\n          {\n            \"Amount\": \"0.00\"\n          }\n        ]\n      },\n      \"Taxes\": {\n        \"Tax\": [\n          {\n            \"Code\": \"1\",\n            \"Description\": \"IVA\",\n            \"TaxableAmount\": \"26.7857\",\n            \"Amount\": \"3.2143\"\n          }\n        ]\n      },\n      \"Totals\": {\n        \"TotalItem\": \"30.000000\"\n      }\n    }\n  ],\n  \"Totals\": {\n    \"TotalTaxes\": {\n      \"TotalTax\": [\n        {\n          \"Description\": \"IVA\",\n          \"Amount\": \"3.2143\"\n        }\n      ]\n    },\n    \"GrandTotal\": {\n      \"InvoiceTotal\": \"30.000000\"\n    }\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [\n      {\n        \"Code\": \"FCAMB\",\n        \"Type\": \"COMPLEMENTO\",\n        \"AditionalData\": {\n          \"Data\": [\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"NumeroAbono\",\n                  \"Data\": null,\n                  \"Value\": \"1\"\n                },\n                {\n                  \"Name\": \"FechaVencimiento\",\n                  \"Data\": null,\n                  \"Value\": \"{{issue_date_gt}}\"\n                },\n                {\n                  \"Name\": \"MontoAbono\",\n                  \"Data\": null,\n                  \"Value\": \"30.00\"\n                }\n              ]\n            }\n          ]\n        }\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));",
+                  "pm.collectionVariables.set(\"last_receiver_id\", \"12345678\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "NDEB - Nota de Débito",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Ejemplo JSON NUC de NDEB con complemento de referencia a documento origen y adenda.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"NDEB\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\"\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [\n      {\n        \"Name\": \"AfiliacionIVA\",\n        \"Data\": null,\n        \"Value\": \"GEN\"\n      }\n    ],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    }\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_nit_id}}\",\n    \"Name\": \"{{buyer_nit_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"{{buyer_nit_address}}\",\n      \"City\": \"{{buyer_nit_city}}\",\n      \"District\": \"{{buyer_nit_district}}\",\n      \"State\": \"{{buyer_nit_state}}\",\n      \"Country\": \"{{buyer_nit_country}}\"\n    }\n  },\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"LLANTAS 90/90-17 TL DOBLE PROPOSITO\",\n      \"Qty\": \"1.000\",\n      \"UnitOfMeasure\": \"UNO\",\n      \"Price\": \"19.000\",\n      \"Discounts\": null,\n      \"Taxes\": {\n        \"Tax\": [\n          {\n            \"Code\": \"1\",\n            \"Description\": \"IVA\",\n            \"TaxableAmount\": \"16.964286\",\n            \"Amount\": \"2.035714\"\n          }\n        ]\n      },\n      \"Totals\": {\n        \"TotalItem\": \"19.000000\"\n      }\n    }\n  ],\n  \"Totals\": {\n    \"TotalTaxes\": {\n      \"TotalTax\": [\n        {\n          \"Description\": \"IVA\",\n          \"Amount\": \"2.035714\"\n        }\n      ]\n    },\n    \"GrandTotal\": {\n      \"InvoiceTotal\": \"19.000000\"\n    }\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [\n      {\n        \"Code\": \"NDEB\",\n        \"Type\": \"COMPLEMENTO\",\n        \"AditionalInfo\": [\n          {\n            \"Name\": \"NumeroAutorizacionDocumentoOrigen\",\n            \"Data\": null,\n            \"Value\": \"{{origin_authnumber_ndeb}}\"\n          },\n          {\n            \"Name\": \"FechaEmisionDocumentoOrigen\",\n            \"Data\": null,\n            \"Value\": \"{{origin_issue_date_ndeb}}\"\n          },\n          {\n            \"Name\": \"MotivoAjuste\",\n            \"Data\": null,\n            \"Value\": \"Agregado nuevo item en la misma factura\"\n          },\n          {\n            \"Name\": \"SerieDocumentoOrigen\",\n            \"Data\": null,\n            \"Value\": \"{{origin_series_ndeb}}\"\n          },\n          {\n            \"Name\": \"NumeroDocumentoOrigen\",\n            \"Data\": null,\n            \"Value\": \"{{origin_number_ndeb}}\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));",
+                  "pm.collectionVariables.set(\"last_receiver_id\", \"12345678\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "NCRE - Nota de Crédito",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Ejemplo JSON NUC de NCRE con complemento de referencia a documento origen y adenda.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"NCRE\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\"\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [\n      {\n        \"Name\": \"AfiliacionIVA\",\n        \"Data\": null,\n        \"Value\": \"GEN\"\n      }\n    ],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    }\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_nit_id}}\",\n    \"Name\": \"{{buyer_nit_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"{{buyer_nit_address}}\",\n      \"City\": \"{{buyer_nit_city}}\",\n      \"District\": \"{{buyer_nit_district}}\",\n      \"State\": \"{{buyer_nit_state}}\",\n      \"Country\": \"{{buyer_nit_country}}\"\n    }\n  },\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"NARANJA MECANICA\",\n      \"Qty\": \"1.0000\",\n      \"UnitOfMeasure\": \"CA\",\n      \"Price\": \"10.000000\",\n      \"Discounts\": null,\n      \"Taxes\": {\n        \"Tax\": [\n          {\n            \"Code\": \"1\",\n            \"Description\": \"IVA\",\n            \"TaxableAmount\": \"8.928571\",\n            \"Amount\": \"1.071429\"\n          }\n        ]\n      },\n      \"Totals\": {\n        \"TotalItem\": \"10.000000\"\n      }\n    }\n  ],\n  \"Totals\": {\n    \"TotalTaxes\": {\n      \"TotalTax\": [\n        {\n          \"Description\": \"IVA\",\n          \"Amount\": \"1.071429\"\n        }\n      ]\n    },\n    \"GrandTotal\": {\n      \"InvoiceTotal\": \"10.000000\"\n    }\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [\n      {\n        \"Code\": \"NCRE\",\n        \"Type\": \"COMPLEMENTO\",\n        \"AditionalInfo\": [\n          {\n            \"Name\": \"NumeroAutorizacionDocumentoOrigen\",\n            \"Data\": null,\n            \"Value\": \"{{origin_authnumber_ncre}}\"\n          },\n          {\n            \"Name\": \"FechaEmisionDocumentoOrigen\",\n            \"Data\": null,\n            \"Value\": \"{{origin_issue_date_ncre}}\"\n          },\n          {\n            \"Name\": \"MotivoAjuste\",\n            \"Data\": null,\n            \"Value\": \"Devolución porque el producto no salió bueno\"\n          },\n          {\n            \"Name\": \"NumeroDocumentoOrigen\",\n            \"Data\": null,\n            \"Value\": \"{{origin_number_ncre}}\"\n          },\n          {\n            \"Name\": \"SerieDocumentoOrigen\",\n            \"Data\": null,\n            \"Value\": \"{{origin_series_ncre}}\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));",
+                  "pm.collectionVariables.set(\"last_receiver_id\", \"12345678\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "NABN - Nota de Abono",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Ejemplo JSON NUC de NABN con adenda, alineado al archivo oficial subido.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"NABN\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\"\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [\n      {\n        \"Name\": \"AfiliacionIVA\",\n        \"Data\": null,\n        \"Value\": \"GEN\"\n      }\n    ],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    }\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_nit_id}}\",\n    \"Name\": \"{{buyer_nit_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"{{buyer_nit_address}}\",\n      \"City\": \"{{buyer_nit_city}}\",\n      \"District\": \"{{buyer_nit_district}}\",\n      \"State\": \"{{buyer_nit_state}}\",\n      \"Country\": \"{{buyer_nit_country}}\"\n    },\n    \"Contact\": {\n      \"EmailList\": {\n        \"Email\": [\n          \"comprador@example.com\"\n        ]\n      }\n    }\n  },\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"RETENEDOR BLANCO\",\n      \"Qty\": \"1.000000\",\n      \"UnitOfMeasure\": \"UNI\",\n      \"Price\": \"100.000000\",\n      \"Discounts\": null,\n      \"Taxes\": null,\n      \"Totals\": {\n        \"TotalItem\": \"100.000000\"\n      }\n    }\n  ],\n  \"Totals\": {\n    \"GrandTotal\": {\n      \"InvoiceTotal\": \"100.000000\"\n    }\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [\n      {\n        \"Code\": \"FRONT-67C1-4545-BA1E-AA3C115E18D6\",\n        \"Type\": \"ADENDA\",\n        \"AditionalData\": {\n          \"Data\": [\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"OBSERVACIONES\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CANTIDAD_LETRAS\",\n                  \"Data\": null,\n                  \"Value\": \"CIEN QUETZALES CON 00/100\"\n                }\n              ],\n              \"Name\": \"INFORMACION_ADICIONAL\"\n            },\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"NumeroLinea\",\n                  \"Data\": null,\n                  \"Value\": \"1\"\n                },\n                {\n                  \"Name\": \"Descripcion_Adicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CodigoEAN\",\n                  \"Data\": null,\n                  \"Value\": \"1000\"\n                },\n                {\n                  \"Name\": \"CategoriaAdicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                }\n              ],\n              \"Name\": \"DetallesAux_Detalle\"\n            }\n          ]\n        },\n        \"AditionalInfo\": [\n          {\n            \"Name\": \"VALIDAR_REFERENCIA_INTERNA\",\n            \"Data\": null,\n            \"Value\": \"NO_VALIDAR\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));",
+                  "pm.collectionVariables.set(\"last_receiver_id\", \"12345678\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FESP - Factura Especial",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Ejemplo JSON NUC de FESP con complemento de factura especial y adenda.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"FESP\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\"\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [\n      {\n        \"Name\": \"AfiliacionIVA\",\n        \"Data\": null,\n        \"Value\": \"GEN\"\n      }\n    ],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    }\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_fesp_id}}\",\n    \"Name\": \"{{buyer_fesp_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"CIUDAD\",\n      \"City\": \"01010\",\n      \"District\": \"GUATEMALA\",\n      \"State\": \"GUATEMALA\",\n      \"Country\": \"GT\"\n    }\n  },\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"ALQUILER DE EQUIPO DE LIGASURE\",\n      \"Qty\": \"1.000000\",\n      \"UnitOfMeasure\": \"UNI\",\n      \"Price\": \"2500.000000\",\n      \"Discounts\": null,\n      \"Taxes\": {\n        \"Tax\": [\n          {\n            \"Code\": \"1\",\n            \"Description\": \"IVA\",\n            \"TaxableAmount\": \"2232.142857\",\n            \"Amount\": \"267.857143\"\n          }\n        ]\n      },\n      \"Totals\": {\n        \"TotalItem\": \"2500.000000\"\n      }\n    }\n  ],\n  \"Totals\": {\n    \"TotalTaxes\": {\n      \"TotalTax\": [\n        {\n          \"Description\": \"IVA\",\n          \"Amount\": \"267.857143\"\n        }\n      ]\n    },\n    \"GrandTotal\": {\n      \"InvoiceTotal\": \"2500.000000\"\n    }\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [\n      {\n        \"Code\": \"FESP\",\n        \"Type\": \"COMPLEMENTO\",\n        \"AditionalInfo\": [\n          {\n            \"Name\": \"RetencionISR\",\n            \"Data\": null,\n            \"Value\": \"111.607143\"\n          },\n          {\n            \"Name\": \"RetencionIVA\",\n            \"Data\": null,\n            \"Value\": \"267.857143\"\n          },\n          {\n            \"Name\": \"TotalMenosRetenciones\",\n            \"Data\": null,\n            \"Value\": \"2120.535714\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));",
+                  "pm.collectionVariables.set(\"last_receiver_id\", \"10001794\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "RDON - Recibo por Donación",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Ejemplo JSON NUC de RDON con TipoPersoneria en Header y adenda, alineado al archivo oficial subido.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"RDON\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\",\n    \"AdditionalIssueDocInfo\": [\n      {\n        \"Name\": \"TipoPersoneria\",\n        \"Data\": null,\n        \"Value\": \"{{tipo_personeria_rdon}}\"\n      }\n    ]\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [\n      {\n        \"Name\": \"AfiliacionIVA\",\n        \"Data\": null,\n        \"Value\": \"GEN\"\n      }\n    ],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    },\n    \"AdditionlInfo\": [\n      {\n        \"Name\": \"TipoFrase\",\n        \"Data\": \"1\",\n        \"Value\": \"4\"\n      },\n      {\n        \"Name\": \"Escenario\",\n        \"Data\": \"1\",\n        \"Value\": \"4\"\n      }\n    ]\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_nit_id}}\",\n    \"Name\": \"{{buyer_nit_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"{{buyer_nit_address}}\",\n      \"City\": \"{{buyer_nit_city}}\",\n      \"District\": \"{{buyer_nit_district}}\",\n      \"State\": \"{{buyer_nit_state}}\",\n      \"Country\": \"{{buyer_nit_country}}\"\n    }\n  },\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"Prueba 5\",\n      \"Qty\": \"1.000000\",\n      \"UnitOfMeasure\": \"UNI\",\n      \"Price\": \"50.000000\",\n      \"Discounts\": null,\n      \"Taxes\": null,\n      \"Totals\": {\n        \"TotalItem\": \"50.000000\"\n      }\n    }\n  ],\n  \"Totals\": {\n    \"GrandTotal\": {\n      \"InvoiceTotal\": \"50.000000\"\n    }\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [\n      {\n        \"Code\": \"FRONT-67C1-4545-BA1E-AA3C115E18D6\",\n        \"Type\": \"ADENDA\",\n        \"AditionalData\": {\n          \"Data\": [\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"OBSERVACIONES\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CANTIDAD_LETRAS\",\n                  \"Data\": null,\n                  \"Value\": \"CINCUENTA QUETZALES CON 00/100\"\n                }\n              ],\n              \"Name\": \"INFORMACION_ADICIONAL\"\n            },\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"NumeroLinea\",\n                  \"Data\": null,\n                  \"Value\": \"1\"\n                },\n                {\n                  \"Name\": \"Descripcion_Adicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CodigoEAN\",\n                  \"Data\": null,\n                  \"Value\": \"00010\"\n                },\n                {\n                  \"Name\": \"CategoriaAdicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                }\n              ],\n              \"Name\": \"DetallesAux_Detalle\"\n            }\n          ]\n        },\n        \"AditionalInfo\": [\n          {\n            \"Name\": \"VALIDAR_REFERENCIA_INTERNA\",\n            \"Data\": null,\n            \"Value\": \"NO_VALIDAR\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));",
+                  "pm.collectionVariables.set(\"last_receiver_id\", \"12345678\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FACT - Cobros por Cuenta Ajena (CCA)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Ejemplo JSON NUC de FACT con complemento CCA (Cobros por Cuenta Ajena) y adenda. NOTA: Falla con code=3000 (NAMESPACE_UNKNOWN 5035, ns='http://www.sat.gob.gt/face2/CobroXCuentaAjena/0.1.0') si el emisor no tiene el complemento CCA habilitado en el ambiente de test. El payload es estructuralmente correcto según la documentación NUC.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"FACT\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\"\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [\n      {\n        \"Name\": \"AfiliacionIVA\",\n        \"Data\": null,\n        \"Value\": \"GEN\"\n      }\n    ],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    },\n    \"AdditionlInfo\": [\n      {\n        \"Name\": \"TipoFrase\",\n        \"Data\": \"1\",\n        \"Value\": \"1\"\n      },\n      {\n        \"Name\": \"Escenario\",\n        \"Data\": \"1\",\n        \"Value\": \"1\"\n      }\n    ]\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_nit_id}}\",\n    \"Name\": \"{{buyer_nit_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"{{buyer_nit_address}}\",\n      \"City\": \"{{buyer_nit_city}}\",\n      \"District\": \"{{buyer_nit_district}}\",\n      \"State\": \"{{buyer_nit_state}}\",\n      \"Country\": \"{{buyer_nit_country}}\"\n    },\n    \"Contact\": {\n      \"EmailList\": {\n        \"Email\": [\n          \"comprador@example.com\"\n        ]\n      }\n    }\n  },\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"LECHE DOS PINOS ENTERA LIQUIDA LITRO (VERDE)\",\n      \"Qty\": \"2.000000\",\n      \"UnitOfMeasure\": \"UNI\",\n      \"Price\": \"50.000000\",\n      \"Discounts\": {\n        \"Discount\": [\n          {\n            \"Amount\": \"10.00\"\n          }\n        ]\n      },\n      \"Taxes\": {\n        \"Tax\": [\n          {\n            \"Code\": \"1\",\n            \"Description\": \"IVA\",\n            \"TaxableAmount\": \"80.357143\",\n            \"Amount\": \"9.642857\"\n          }\n        ]\n      },\n      \"Totals\": {\n        \"TotalItem\": \"90.000000\"\n      }\n    }\n  ],\n  \"Totals\": {\n    \"TotalTaxes\": {\n      \"TotalTax\": [\n        {\n          \"Description\": \"IVA\",\n          \"Amount\": \"9.642857\"\n        }\n      ]\n    },\n    \"GrandTotal\": {\n      \"InvoiceTotal\": \"90.000000\"\n    }\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [\n      {\n        \"Code\": \"CCA\",\n        \"Type\": \"COMPLEMENTO\",\n        \"AditionalData\": {\n          \"Data\": [\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"NITtercero\",\n                  \"Data\": null,\n                  \"Value\": \"112706517\"\n                },\n                {\n                  \"Name\": \"NumeroDocumento\",\n                  \"Data\": null,\n                  \"Value\": \"1\"\n                },\n                {\n                  \"Name\": \"FechaDocumento\",\n                  \"Data\": null,\n                  \"Value\": \"{{issue_date_gt}}\"\n                },\n                {\n                  \"Name\": \"Descripcion\",\n                  \"Data\": null,\n                  \"Value\": \"Cobro por cuenta ajena 1\"\n                },\n                {\n                  \"Name\": \"BaseImponible\",\n                  \"Data\": null,\n                  \"Value\": \"100.00\"\n                },\n                {\n                  \"Name\": \"MontoCobroDAI\",\n                  \"Data\": null,\n                  \"Value\": \"0\"\n                },\n                {\n                  \"Name\": \"MontoCobroIVA\",\n                  \"Data\": null,\n                  \"Value\": \"12.00\"\n                },\n                {\n                  \"Name\": \"MontoCobroOtros\",\n                  \"Data\": null,\n                  \"Value\": \"0\"\n                },\n                {\n                  \"Name\": \"MontoCobroTotal\",\n                  \"Data\": null,\n                  \"Value\": \"12.00\"\n                }\n              ]\n            },\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"NITtercero\",\n                  \"Data\": null,\n                  \"Value\": \"112706517\"\n                },\n                {\n                  \"Name\": \"NumeroDocumento\",\n                  \"Data\": null,\n                  \"Value\": \"2\"\n                },\n                {\n                  \"Name\": \"FechaDocumento\",\n                  \"Data\": null,\n                  \"Value\": \"{{issue_date_gt}}\"\n                },\n                {\n                  \"Name\": \"Descripcion\",\n                  \"Data\": null,\n                  \"Value\": \"Cobro por cuenta ajena 2\"\n                },\n                {\n                  \"Name\": \"BaseImponible\",\n                  \"Data\": null,\n                  \"Value\": \"120.00\"\n                },\n                {\n                  \"Name\": \"MontoCobroDAI\",\n                  \"Data\": null,\n                  \"Value\": \"0\"\n                },\n                {\n                  \"Name\": \"MontoCobroIVA\",\n                  \"Data\": null,\n                  \"Value\": \"14.40\"\n                },\n                {\n                  \"Name\": \"MontoCobroOtros\",\n                  \"Data\": null,\n                  \"Value\": \"0\"\n                },\n                {\n                  \"Name\": \"MontoCobroTotal\",\n                  \"Data\": null,\n                  \"Value\": \"14.40\"\n                }\n              ]\n            }\n          ]\n        }\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));",
+                  "pm.collectionVariables.set(\"last_receiver_id\", \"12345678\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FPEQ - Factura Pequeño Contribuyente (corregido)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Ejemplo JSON NUC corregido a DocType FPEQ con AfiliacionIVA:PEQ y TipoFrase:3 (correcto per doc SAT). NOTA: Falla con code=3000 (FEL_RCP302) si el emisor no está afiliado como Pequeño Contribuyente en el RTU. Para emisor 12345678 (régimen GEN) se espera este error; el payload es estructuralmente correcto.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"FPEQ\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\"\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [\n      {\n        \"Name\": \"AfiliacionIVA\",\n        \"Data\": null,\n        \"Value\": \"PEQ\"\n      }\n    ],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    },\n    \"AdditionlInfo\": [\n      {\n        \"Name\": \"TipoFrase\",\n        \"Data\": \"1\",\n        \"Value\": \"3\"\n      },\n      {\n        \"Name\": \"Escenario\",\n        \"Data\": \"1\",\n        \"Value\": \"1\"\n      }\n    ]\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_cf_id}}\",\n    \"Name\": \"{{buyer_cf_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"{{buyer_cf_address}}\",\n      \"City\": \"{{buyer_cf_city}}\",\n      \"District\": \"{{buyer_cf_district}}\",\n      \"State\": \"{{buyer_cf_state}}\",\n      \"Country\": \"{{buyer_cf_country}}\"\n    }\n  },\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"TEST\",\n      \"Qty\": \"5.000000\",\n      \"UnitOfMeasure\": \"EA\",\n      \"Price\": \"25.000000\",\n      \"Discounts\": null,\n      \"Taxes\": null,\n      \"Totals\": {\n        \"TotalItem\": \"125.000000\"\n      }\n    }\n  ],\n  \"Totals\": {\n    \"GrandTotal\": {\n      \"InvoiceTotal\": \"125.000000\"\n    }\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [\n      {\n        \"Code\": \"FRONT-263C-444B-89BA-6F87EC1330C0\",\n        \"Type\": \"ADENDA\",\n        \"AditionalData\": {\n          \"Data\": [\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"OBSERVACIONES\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CANTIDAD_LETRAS\",\n                  \"Data\": null,\n                  \"Value\": \"CIENTO NOVENTA QUETZALES CON 00/100\"\n                }\n              ],\n              \"Name\": \"INFORMACION_ADICIONAL\"\n            },\n            {\n              \"Info\": [\n                {\n                  \"Name\": \"NumeroLinea\",\n                  \"Data\": null,\n                  \"Value\": \"1\"\n                },\n                {\n                  \"Name\": \"Descripcion_Adicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CodigoEAN\",\n                  \"Data\": null,\n                  \"Value\": \"00015\"\n                },\n                {\n                  \"Name\": \"CategoriaAdicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                }\n              ],\n              \"Name\": \"DetallesAux_Detalle\"\n            }\n          ]\n        },\n        \"AditionalInfo\": [\n          {\n            \"Name\": \"VALIDAR_REFERENCIA_INTERNA\",\n            \"Data\": null,\n            \"Value\": \"NO_VALIDAR\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));",
+                  "pm.collectionVariables.set(\"last_receiver_id\", \"CF\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "RECI - Recibo (reconstruido desde XML)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "RECI reconstruido a JSON desde el XML subido, incluyendo AdditionalDocumentInfo/ADENDA y datos auxiliares del ejemplo.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"RECI\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\"\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [\n      {\n        \"Name\": \"AfiliacionIVA\",\n        \"Data\": null,\n        \"Value\": \"GEN\"\n      }\n    ],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    },\n    \"AdditionlInfo\": [\n      {\n        \"Name\": \"TipoFrase\",\n        \"Data\": \"1\",\n        \"Value\": \"4\"\n      },\n      {\n        \"Name\": \"Escenario\",\n        \"Data\": \"1\",\n        \"Value\": \"5\"\n      }\n    ]\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_nit_id}}\",\n    \"Name\": \"{{buyer_nit_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"{{buyer_nit_address}}\",\n      \"City\": \"{{buyer_nit_city}}\",\n      \"District\": \"{{buyer_nit_district}}\",\n      \"State\": \"{{buyer_nit_state}}\",\n      \"Country\": \"{{buyer_nit_country}}\"\n    }\n  },\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"Jalapeño\",\n      \"Qty\": \"1.000000\",\n      \"UnitOfMeasure\": \"UNI\",\n      \"Price\": \"250.000000\",\n      \"Discounts\": null,\n      \"Taxes\": null,\n      \"Totals\": {\n        \"TotalItem\": \"250.000000\"\n      }\n    }\n  ],\n  \"Totals\": {\n    \"GrandTotal\": {\n      \"InvoiceTotal\": \"250.000000\"\n    }\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [\n      {\n        \"Code\": \"FRONT-67C1-4545-BA1E-AA3C115E18D6\",\n        \"Type\": \"ADENDA\",\n        \"AditionalData\": {\n          \"Data\": [\n            {\n              \"Name\": \"INFORMACION_ADICIONAL\",\n              \"Info\": [\n                {\n                  \"Name\": \"OBSERVACIONES\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CANTIDAD_LETRAS\",\n                  \"Data\": null,\n                  \"Value\": \"DOSCIENTOS CINCUENTA QUETZALES CON 00/100\"\n                }\n              ]\n            },\n            {\n              \"Name\": \"DetallesAux_Detalle\",\n              \"Info\": [\n                {\n                  \"Name\": \"NumeroLinea\",\n                  \"Data\": null,\n                  \"Value\": \"1\"\n                },\n                {\n                  \"Name\": \"Descripcion_Adicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                },\n                {\n                  \"Name\": \"CodigoEAN\",\n                  \"Data\": null,\n                  \"Value\": \"00025\"\n                },\n                {\n                  \"Name\": \"CategoriaAdicional\",\n                  \"Data\": null,\n                  \"Value\": \"-\"\n                }\n              ]\n            }\n          ]\n        },\n        \"AditionalInfo\": [\n          {\n            \"Name\": \"VALIDAR_REFERENCIA_INTERNA\",\n            \"Data\": null,\n            \"Value\": \"NO_VALIDAR\"\n          },\n          {\n            \"Name\": \"Tipo\",\n            \"Data\": null,\n            \"Value\": \"Universidad\"\n          },\n          {\n            \"Name\": \"NombreAlumno\",\n            \"Data\": null,\n            \"Value\": \"Julio Cifuentes\"\n          },\n          {\n            \"Name\": \"Carne\",\n            \"Data\": null,\n            \"Value\": \"201801677\"\n          },\n          {\n            \"Name\": \"UnidadAcademica\",\n            \"Data\": null,\n            \"Value\": \"08\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));",
+                  "pm.collectionVariables.set(\"last_receiver_id\", \"12345678\");"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Consultas",
+      "item": [
+        {
+          "name": "SHARED_GETDTEINFO",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/Shared?COUNTRY={{country}}&TAXID={{taxid_padded}}&DATA1=SHARED_GETDTEINFO&DATA2=AUTHNUMBER|{{last_authnumber}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "Shared"
+              ],
+              "query": [
+                {
+                  "key": "COUNTRY",
+                  "value": "{{country}}",
+                  "disabled": false
+                },
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "DATA1",
+                  "value": "SHARED_GETDTEINFO",
+                  "disabled": false
+                },
+                {
+                  "key": "DATA2",
+                  "value": "AUTHNUMBER|{{last_authnumber}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Consulta datos del DTE a partir del auth number."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {}; try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "pm.test('Respuesta con REQUEST_DATA/RESPONSE o error legible', function () { pm.expect(body.REQUEST_DATA || body.RESPONSE || body.message || body.Message || body.description || body.Description).to.exist; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET INFONITcom",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/Shared?COUNTRY={{country}}&TAXID={{taxid_padded}}&DATA1=SHARED_GETINFONITcom&DATA2=NIT|{{lookup_nit}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "Shared"
+              ],
+              "query": [
+                {
+                  "key": "COUNTRY",
+                  "value": "{{country}}",
+                  "disabled": false
+                },
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "DATA1",
+                  "value": "SHARED_GETINFONITcom",
+                  "disabled": false
+                },
+                {
+                  "key": "DATA2",
+                  "value": "NIT|{{lookup_nit}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Consulta nombre/razón social y dirección por NIT."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {}; try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "pm.test('Respuesta con REQUEST_DATA/RESPONSE o error legible', function () { pm.expect(body.REQUEST_DATA || body.RESPONSE || body.message || body.Message || body.description || body.Description).to.exist; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET DOCUMENT - JSON",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/GetDocument?AUTHNUMBER={{last_authnumber}}&TAXID={{taxid_padded}}&FORMAT={{get_document_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "GetDocument"
+              ],
+              "query": [
+                {
+                  "key": "AUTHNUMBER",
+                  "value": "{{last_authnumber}}",
+                  "disabled": false
+                },
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{get_document_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Solicita el documento por auth number en formato JSON. Digifact documenta FORMAT=JSON, aunque la tabla de respuesta detalla principalmente XML/HTML/PDF."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {}; try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "pm.test('Respuesta JSON parseable', function () { pm.expect(body).to.be.an('object'); });",
+                  "pm.test('Respuesta con REQUEST_DATA/RESPONSE o error legible', function () { pm.expect(body.REQUEST_DATA || body.RESPONSE || body.message || body.Message || body.description || body.Description).to.exist; });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Nota de crédito total",
+      "item": [
+        {
+          "name": "CERTIFICATE NCRED - Nota de crédito total",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/cert/ncredtotal",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "cert",
+                "ncredtotal"
+              ]
+            },
+            "description": "Genera nota de crédito total por auth number con body JSON.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Staxid\": \"{{seller_taxid}}\",\n  \"Authnumber\": \"{{ncred_total_authnumber}}\",\n  \"FechaEmision\": \"{{issue_datetime_space_gt}}\",\n  \"MotivoAjuste\": \"{{ncred_total_reason}}\",\n  \"ReferenciaInterna\": \"{{ncred_total_referencia_interna}}\",\n  \"Formatos\": \"xml|html|pdf\",\n  \"Username\": \"{{username}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.code !== undefined) {",
+                  "  pm.test('Digifact code distinto de 0', function () { pm.expect(Number(body.code)).to.not.eql(0); });",
+                  "}",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "const serie = body.batch || body.Serie || '';",
+                  "if (serie) pm.collectionVariables.set('last_series', String(serie));",
+                  "const numero = body.serial || body.Numero || '';",
+                  "if (numero) pm.collectionVariables.set('last_number', String(numero));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "if (!body.issuedTimeStamp && pm.collectionVariables.get('issue_datetime_gt')) pm.collectionVariables.set('last_issue_datetime', pm.collectionVariables.get('issue_datetime_gt'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 - Anulación",
+      "item": [
+        {
+          "name": "CANCEL FEL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/CancelFelGT",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "CancelFelGT"
+              ]
+            },
+            "description": "Anula un DTE previamente emitido. La tabla del PDF dice 'Formato XML', pero el endpoint documenta Content-Type application/json y body JSON.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Taxid\": \"{{seller_taxid}}\",\n  \"Autorizacion\": \"{{cancel_authnumber}}\",\n  \"IdReceptor\": \"{{cancel_receiver_id}}\",\n  \"FechaEmisionDocumentoAnular\": \"{{cancel_issue_datetime}}\",\n  \"MotivoAnulacion\": \"{{cancel_reason}}\",\n  \"Username\": \"{{username}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {}; try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "if (body.Codigo !== undefined) {",
+                  "  pm.test('Digifact Codigo distinto de 0', function () { pm.expect(Number(body.Codigo)).to.not.eql(0); });",
+                  "}",
+                  "pm.test('Respuesta con Codigo/Mensaje o equivalente', function () { pm.expect(body.Codigo || body.code || body.Mensaje || body.message || body.description || body.Description).to.exist; });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "country",
+      "value": "GT"
+    },
+    {
+      "key": "currency",
+      "value": "GTQ"
+    },
+    {
+      "key": "certify_format",
+      "value": "XML|HTML|PDF"
+    },
+    {
+      "key": "get_document_format",
+      "value": "JSON"
+    },
+    {
+      "key": "seller_name",
+      "value": "FEL TEST"
+    },
+    {
+      "key": "seller_establishment_code",
+      "value": "1"
+    },
+    {
+      "key": "seller_establishment_name",
+      "value": "ESTABLECIMIENTO DE PRUEBA"
+    },
+    {
+      "key": "seller_address",
+      "value": "4 AVENIDA 15-70 ZONA 10 LOCAL 3 EDIFICIO PALADIUM"
+    },
+    {
+      "key": "seller_city",
+      "value": "01010"
+    },
+    {
+      "key": "seller_district",
+      "value": "Guatemala"
+    },
+    {
+      "key": "seller_state",
+      "value": "Guatemala"
+    },
+    {
+      "key": "seller_country",
+      "value": "GT"
+    },
+    {
+      "key": "buyer_cf_id",
+      "value": "CF"
+    },
+    {
+      "key": "buyer_cf_name",
+      "value": "CONSUMIDOR FINAL"
+    },
+    {
+      "key": "buyer_cf_address",
+      "value": "CIUDAD"
+    },
+    {
+      "key": "buyer_cf_city",
+      "value": "01010"
+    },
+    {
+      "key": "buyer_cf_district",
+      "value": "GUATEMALA"
+    },
+    {
+      "key": "buyer_cf_state",
+      "value": "GUATEMALA"
+    },
+    {
+      "key": "buyer_cf_country",
+      "value": "GT"
+    },
+    {
+      "key": "buyer_cui_id",
+      "value": "3730617490101"
+    },
+    {
+      "key": "buyer_cui_name",
+      "value": "Julio Cifuentes"
+    },
+    {
+      "key": "buyer_nit_id",
+      "value": "12345678"
+    },
+    {
+      "key": "buyer_nit_name",
+      "value": "DIGIFACT SERVICIOS SOCIEDAD ANONIMA"
+    },
+    {
+      "key": "buyer_nit_address",
+      "value": "4ta avenida 15-70 zona 10"
+    },
+    {
+      "key": "buyer_nit_city",
+      "value": "01010"
+    },
+    {
+      "key": "buyer_nit_district",
+      "value": "GUATEMALA"
+    },
+    {
+      "key": "buyer_nit_state",
+      "value": "GUATEMALA"
+    },
+    {
+      "key": "buyer_nit_country",
+      "value": "GT"
+    },
+    {
+      "key": "buyer_fesp_id",
+      "value": "10001794"
+    },
+    {
+      "key": "buyer_fesp_name",
+      "value": "CASTRO ESTRADA MORALES NORA YESENIA"
+    },
+    {
+      "key": "lookup_nit",
+      "value": "12345678"
+    },
+    {
+      "key": "origin_authnumber_ndeb",
+      "value": "D21E95C9-00FB-443B-AD08-71514F021E47"
+    },
+    {
+      "key": "origin_issue_date_ndeb",
+      "value": "2022-06-29"
+    },
+    {
+      "key": "origin_series_ndeb",
+      "value": "D21E95C9"
+    },
+    {
+      "key": "origin_number_ndeb",
+      "value": "16467003"
+    },
+    {
+      "key": "origin_authnumber_ncre",
+      "value": "62496FB5-75B4-4C75-83FA-DFBEF92DE92D"
+    },
+    {
+      "key": "origin_issue_date_ncre",
+      "value": "2022-06-29"
+    },
+    {
+      "key": "origin_series_ncre",
+      "value": "62496FB5"
+    },
+    {
+      "key": "origin_number_ncre",
+      "value": "1974750325"
+    },
+    {
+      "key": "tipo_personeria_rdon",
+      "value": "719"
+    },
+    {
+      "key": "cancel_authnumber",
+      "value": ""
+    },
+    {
+      "key": "cancel_receiver_id",
+      "value": ""
+    },
+    {
+      "key": "cancel_issue_datetime",
+      "value": ""
+    },
+    {
+      "key": "cancel_reason",
+      "value": "Anulación de prueba desde Postman"
+    },
+    {
+      "key": "ncred_total_authnumber",
+      "value": ""
+    },
+    {
+      "key": "ncred_total_reason",
+      "value": "Nota de crédito total de prueba"
+    },
+    {
+      "key": "ncred_total_referencia_interna",
+      "value": ""
+    },
+    {
+      "key": "last_authnumber",
+      "value": ""
+    },
+    {
+      "key": "last_receiver_id",
+      "value": ""
+    },
+    {
+      "key": "last_issue_datetime",
+      "value": ""
+    },
+    {
+      "key": "last_series",
+      "value": ""
+    },
+    {
+      "key": "last_number",
+      "value": ""
+    }
+  ]
+}

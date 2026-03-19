@@ -1,0 +1,687 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Digifact\Fel;
+
+/**
+ * DTE payload builders for all supported Digifact FEL document types.
+ *
+ * Key intentional API typos preserved from the SAT/Digifact spec:
+ *   - Seller.AdditionlInfo  (missing 'a' in Additional)
+ *   - AditionalData         (missing 'd')
+ *   - AditionalInfo         (missing 'd')
+ */
+class DteBuilder
+{
+    private const NO_IVA_TYPES = ['FPEQ', 'NABN', 'RDON', 'RECI'];
+    private const ADENDA_CODE_STD = 'FRONT-263C-444B-89BA-6F87EC1330C0';
+    private const ADENDA_CODE_ALT = 'FRONT-67C1-4545-BA1E-AA3C115E18D6';
+    private const ALT_ADENDA_TYPES = ['NABN', 'RDON', 'RECI'];
+
+    private static function adendaCode(string $docType): string
+    {
+        return in_array($docType, self::ALT_ADENDA_TYPES, true)
+            ? self::ADENDA_CODE_ALT
+            : self::ADENDA_CODE_STD;
+    }
+
+    // ── Buyer helpers ─────────────────────────────────────────────────────────
+
+    public static function buyerCf(): array
+    {
+        return [
+            'TaxID' => 'CF',
+            'Name'  => 'CONSUMIDOR FINAL',
+            'AddressInfo' => [
+                'Address'  => 'CIUDAD',
+                'City'     => '01010',
+                'District' => 'GUATEMALA',
+                'State'    => 'GUATEMALA',
+                'Country'  => 'GT',
+            ],
+        ];
+    }
+
+    public static function buyerNit(
+        string $nit,
+        string $name,
+        string $address = 'CIUDAD',
+        string $city = '01010',
+        string $district = 'GUATEMALA',
+        string $state = 'GUATEMALA',
+        string $country = 'GT',
+        ?string $email = null
+    ): array {
+        $buyer = [
+            'TaxID' => $nit,
+            'Name'  => $name,
+            'AddressInfo' => [
+                'Address'  => $address,
+                'City'     => $city,
+                'District' => $district,
+                'State'    => $state,
+                'Country'  => $country,
+            ],
+        ];
+        if ($email !== null) {
+            $buyer['Contact'] = ['EmailList' => ['Email' => [$email]]];
+        }
+        return $buyer;
+    }
+
+    public static function buyerCui(string $taxid, string $name): array
+    {
+        return [
+            'TaxID'     => $taxid,
+            'TaxIDType' => 'CUI',
+            'Name'      => $name,
+            'AddressInfo' => [
+                'Address'  => 'CIUDAD',
+                'City'     => '01010',
+                'District' => 'GUATEMALA',
+                'State'    => 'GUATEMALA',
+                'Country'  => 'GT',
+            ],
+        ];
+    }
+
+    // ── Seller builder ────────────────────────────────────────────────────────
+
+    private static function buildSeller(
+        string $taxid,
+        string $name,
+        string $address,
+        string $afiliacion = 'GEN',
+        ?string $tipoFrase = '1',
+        ?string $escenario = '1',
+        string $branchCode = '1',
+        string $branchName = 'ESTABLECIMIENTO PRINCIPAL',
+        string $city = '01010',
+        string $district = 'Guatemala',
+        string $state = 'Guatemala',
+        string $country = 'GT',
+        ?string $email = null
+    ): array {
+        $seller = [
+            'TaxID' => $taxid,
+            'TaxIDAdditionalInfo' => [
+                ['Name' => 'AfiliacionIVA', 'Data' => null, 'Value' => $afiliacion],
+            ],
+            'Name' => $name,
+            'BranchInfo' => [
+                'Code' => $branchCode,
+                'Name' => $branchName,
+                'AddressInfo' => [
+                    'Address'  => $address,
+                    'City'     => $city,
+                    'District' => $district,
+                    'State'    => $state,
+                    'Country'  => $country,
+                ],
+            ],
+        ];
+        if ($email !== null) {
+            $seller['Contact'] = ['EmailList' => ['Email' => [$email]]];
+        }
+        // AdditionlInfo — intentional typo per SAT/Digifact spec
+        if ($tipoFrase !== null && $escenario !== null) {
+            $seller['AdditionlInfo'] = [
+                ['Name' => 'TipoFrase', 'Data' => '1', 'Value' => $tipoFrase],
+                ['Name' => 'Escenario',  'Data' => '1', 'Value' => $escenario],
+            ];
+        }
+        return $seller;
+    }
+
+    // ── Items builder ─────────────────────────────────────────────────────────
+
+    /**
+     * Build Items array and return [items, grandTotal, totalIva].
+     *
+     * @param list<array> $items Each item: description, qty, price, type, unit_of_measure, discount
+     * @param bool $taxable
+     * @return array{list<array>, string, string}
+     */
+    private static function buildItems(array $items, bool $taxable = true): array
+    {
+        $builtItems = [];
+        $grandTotal = '0';
+        $totalIva   = '0';
+
+        foreach ($items as $i => $item) {
+            $qty      = (string)($item['qty'] ?? 1);
+            $price    = (string)$item['price'];
+            $itemType = $item['type'] ?? 'Servicio';
+            $uom      = $item['unit_of_measure'] ?? 'UNI';
+            $desc     = $item['description'];
+            $discount = isset($item['discount']) ? (string)$item['discount'] : '0';
+
+            $calc = TaxHelper::calcLine($qty, $price, $taxable, $discount);
+
+            $built = [
+                'Number'        => (string)($i + 1),
+                'Codes'         => null,
+                'Type'          => $itemType,
+                'Description'   => $desc,
+                'Qty'           => $calc['qty'],
+                'UnitOfMeasure' => $uom,
+                'Price'         => $calc['price'],
+            ];
+
+            if ((float)$discount > 0) {
+                $built['Discounts'] = ['Discount' => [['Amount' => $calc['discount']]]];
+            } else {
+                $built['Discounts'] = null;
+            }
+
+            if ($taxable) {
+                $built['Taxes'] = [
+                    'Tax' => [[
+                        'Code'          => '1',
+                        'Description'   => 'IVA',
+                        'TaxableAmount' => $calc['taxable'],
+                        'Amount'        => $calc['iva'],
+                    ]],
+                ];
+            } else {
+                $built['Taxes'] = null;
+            }
+
+            $built['Totals'] = ['TotalItem' => $calc['lineTotal']];
+
+            $builtItems[] = $built;
+            $grandTotal = bcadd($grandTotal, $calc['lineTotal'], 10);
+            $totalIva   = bcadd($totalIva, $calc['iva'], 10);
+        }
+
+        return [
+            $builtItems,
+            TaxHelper::fmt($grandTotal),
+            TaxHelper::fmt($totalIva),
+        ];
+    }
+
+    private static function buildTotals(string $grandTotal, string $totalIva, bool $taxable): array
+    {
+        $totals = [];
+        if ($taxable) {
+            $totals['TotalTaxes'] = [
+                'TotalTax' => [['Description' => 'IVA', 'Amount' => $totalIva]],
+            ];
+        }
+        $totals['GrandTotal'] = ['InvoiceTotal' => $grandTotal];
+        return $totals;
+    }
+
+    private static function buildAdenda(
+        string $docType,
+        string $amountStr,
+        int $numItems,
+        string $observaciones = '-',
+        array $extraAditionalInfo = []
+    ): array {
+        $code = self::adendaCode($docType);
+
+        $data = [
+            [
+                'Name' => 'INFORMACION_ADICIONAL',
+                'Info' => [
+                    ['Name' => 'OBSERVACIONES',   'Data' => null, 'Value' => $observaciones],
+                    ['Name' => 'CANTIDAD_LETRAS',  'Data' => null, 'Value' => $amountStr],
+                ],
+            ],
+        ];
+        for ($i = 1; $i <= $numItems; $i++) {
+            $data[] = [
+                'Name' => 'DetallesAux_Detalle',
+                'Info' => [
+                    ['Name' => 'NumeroLinea',          'Data' => null, 'Value' => (string)$i],
+                    ['Name' => 'Descripcion_Adicional', 'Data' => null, 'Value' => '-'],
+                    ['Name' => 'CodigoEAN',             'Data' => null, 'Value' => '00001'],
+                    ['Name' => 'CategoriaAdicional',    'Data' => null, 'Value' => '-'],
+                ],
+            ];
+        }
+
+        $aditionalInfo = [
+            ['Name' => 'VALIDAR_REFERENCIA_INTERNA', 'Data' => null, 'Value' => 'NO_VALIDAR'],
+        ];
+        foreach ($extraAditionalInfo as $entry) {
+            $aditionalInfo[] = $entry;
+        }
+
+        return [
+            'AdditionalInfo' => [[
+                'Code'         => $code,
+                'Type'         => 'ADENDA',
+                'AditionalData' => ['Data' => $data],
+                'AditionalInfo' => $aditionalInfo,
+            ]],
+        ];
+    }
+
+    // ── Public builders ───────────────────────────────────────────────────────
+
+    public static function buildFact(
+        string $taxid,
+        string $sellerName,
+        string $sellerAddress,
+        array $buyer,
+        array $items,
+        string $docType = 'FACT',
+        string $afiliacion = 'GEN',
+        string $tipoFrase = '1',
+        string $escenario = '1',
+        string $amountStr = '',
+        string $observaciones = '-',
+        ?array $extraHeader = null,
+        ?string $sellerEmail = null
+    ): array {
+        [$isoNow] = TaxHelper::gtNow();
+        $taxable = !in_array($docType, self::NO_IVA_TYPES, true);
+
+        [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, $taxable);
+
+        $seller = self::buildSeller(
+            $taxid, $sellerName, $sellerAddress,
+            $afiliacion, $tipoFrase, $escenario,
+            email: $sellerEmail
+        );
+
+        $header = ['DocType' => $docType, 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'];
+        if ($extraHeader !== null) {
+            $header = array_merge($header, $extraHeader);
+        }
+
+        $amt = $amountStr ?: $grandTotal;
+        $adenda = self::buildAdenda($docType, $amt, count($items), $observaciones);
+
+        return [
+            'Version'     => '1.00',
+            'CountryCode' => 'GT',
+            'Header'      => $header,
+            'Seller'      => $seller,
+            'Buyer'       => $buyer,
+            'ThirdParties' => null,
+            'Items'       => $lineItems,
+            'Totals'      => self::buildTotals($grandTotal, $totalIva, $taxable),
+            'AdditionalDocumentInfo' => $adenda,
+        ];
+    }
+
+    public static function buildFcam(
+        string $taxid,
+        string $sellerName,
+        string $sellerAddress,
+        array $buyer,
+        array $items,
+        array $paymentTerms,
+        string $afiliacion = 'GEN',
+        ?string $sellerEmail = null
+    ): array {
+        [$isoNow] = TaxHelper::gtNow();
+        [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
+
+        $seller = self::buildSeller(
+            $taxid, $sellerName, $sellerAddress,
+            $afiliacion, '1', '1',
+            email: $sellerEmail
+        );
+
+        $fcamData = [];
+        foreach ($paymentTerms as $idx => $pt) {
+            $amount = TaxHelper::fmt((string)$pt['amount'], 2);
+            $fcamData[] = [
+                'Info' => [
+                    ['Name' => 'NumeroAbono',       'Data' => null, 'Value' => (string)($idx + 1)],
+                    ['Name' => 'FechaVencimiento',  'Data' => null, 'Value' => $pt['date']],
+                    ['Name' => 'MontoAbono',         'Data' => null, 'Value' => $amount],
+                ],
+            ];
+        }
+
+        return [
+            'Version'     => '1.00',
+            'CountryCode' => 'GT',
+            'Header'      => ['DocType' => 'FCAM', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
+            'Seller'      => $seller,
+            'Buyer'       => $buyer,
+            'ThirdParties' => null,
+            'Items'       => $lineItems,
+            'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
+            'AdditionalDocumentInfo' => [
+                'AdditionalInfo' => [[
+                    'Code'          => 'FCAMB',
+                    'Type'          => 'COMPLEMENTO',
+                    'AditionalData' => ['Data' => $fcamData],
+                ]],
+            ],
+        ];
+    }
+
+    public static function buildNdeb(
+        string $taxid,
+        string $sellerName,
+        string $sellerAddress,
+        array $buyer,
+        array $items,
+        array $origin,
+        string $reason,
+        string $afiliacion = 'GEN',
+        ?string $sellerEmail = null
+    ): array {
+        [$isoNow] = TaxHelper::gtNow();
+        [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
+
+        $seller = self::buildSeller(
+            $taxid, $sellerName, $sellerAddress,
+            $afiliacion, '1', '1',
+            email: $sellerEmail
+        );
+
+        return [
+            'Version'     => '1.00',
+            'CountryCode' => 'GT',
+            'Header'      => ['DocType' => 'NDEB', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
+            'Seller'      => $seller,
+            'Buyer'       => $buyer,
+            'ThirdParties' => null,
+            'Items'       => $lineItems,
+            'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
+            'AdditionalDocumentInfo' => [
+                'AdditionalInfo' => [[
+                    'Code' => 'NDEB',
+                    'Type' => 'COMPLEMENTO',
+                    // NDEB uses AditionalInfo (not AditionalData)
+                    'AditionalInfo' => [
+                        ['Name' => 'NumeroAutorizacionDocumentoOrigen', 'Data' => null, 'Value' => $origin['auth_number']],
+                        ['Name' => 'FechaEmisionDocumentoOrigen',       'Data' => null, 'Value' => $origin['date']],
+                        ['Name' => 'MotivoAjuste',                      'Data' => null, 'Value' => $reason],
+                        ['Name' => 'SerieDocumentoOrigen',              'Data' => null, 'Value' => $origin['series']],
+                        ['Name' => 'NumeroDocumentoOrigen',             'Data' => null, 'Value' => (string)$origin['number']],
+                    ],
+                ]],
+            ],
+        ];
+    }
+
+    public static function buildNcre(
+        string $taxid,
+        string $sellerName,
+        string $sellerAddress,
+        array $buyer,
+        array $items,
+        array $origin,
+        string $reason,
+        string $afiliacion = 'GEN',
+        ?string $sellerEmail = null
+    ): array {
+        [$isoNow] = TaxHelper::gtNow();
+        [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
+
+        $seller = self::buildSeller(
+            $taxid, $sellerName, $sellerAddress,
+            $afiliacion, '1', '1',
+            email: $sellerEmail
+        );
+
+        return [
+            'Version'     => '1.00',
+            'CountryCode' => 'GT',
+            'Header'      => ['DocType' => 'NCRE', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
+            'Seller'      => $seller,
+            'Buyer'       => $buyer,
+            'ThirdParties' => null,
+            'Items'       => $lineItems,
+            'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
+            'AdditionalDocumentInfo' => [
+                'AdditionalInfo' => [[
+                    'Code' => 'NCRE',
+                    'Type' => 'COMPLEMENTO',
+                    // NCRE uses AditionalInfo (not AditionalData)
+                    'AditionalInfo' => [
+                        ['Name' => 'NumeroAutorizacionDocumentoOrigen', 'Data' => null, 'Value' => $origin['auth_number']],
+                        ['Name' => 'FechaEmisionDocumentoOrigen',       'Data' => null, 'Value' => $origin['date']],
+                        ['Name' => 'MotivoAjuste',                      'Data' => null, 'Value' => $reason],
+                        ['Name' => 'NumeroDocumentoOrigen',             'Data' => null, 'Value' => (string)$origin['number']],
+                        ['Name' => 'SerieDocumentoOrigen',              'Data' => null, 'Value' => $origin['series']],
+                    ],
+                ]],
+            ],
+        ];
+    }
+
+    public static function buildFesp(
+        string $taxid,
+        string $sellerName,
+        string $sellerAddress,
+        array $buyer,
+        array $items,
+        string $afiliacion = 'GEN',
+        ?string $sellerEmail = null
+    ): array {
+        [$isoNow] = TaxHelper::gtNow();
+        [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
+
+        // FESP: no AdditionlInfo in seller
+        $seller = self::buildSeller(
+            $taxid, $sellerName, $sellerAddress,
+            $afiliacion, null, null,
+            email: $sellerEmail
+        );
+
+        // Calculate retenciones
+        // taxable_total = grand_total / 1.12 * 1.12 — use actual total_taxable
+        // Compute totalTaxable from items
+        $totalTaxable = '0';
+        foreach ($lineItems as $item) {
+            $taxableAmt = $item['Taxes']['Tax'][0]['TaxableAmount'] ?? '0';
+            $totalTaxable = bcadd($totalTaxable, $taxableAmt, 10);
+        }
+        $retencionIsr = TaxHelper::fmt(bcmul($totalTaxable, '0.05', 10));
+        $retencionIva = $totalIva;
+        $totalMenos = TaxHelper::fmt(bcsub(bcsub($grandTotal, $retencionIsr, 10), $retencionIva, 10));
+
+        return [
+            'Version'     => '1.00',
+            'CountryCode' => 'GT',
+            'Header'      => ['DocType' => 'FESP', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
+            'Seller'      => $seller,
+            'Buyer'       => $buyer,
+            'ThirdParties' => null,
+            'Items'       => $lineItems,
+            'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
+            'AdditionalDocumentInfo' => [
+                'AdditionalInfo' => [[
+                    'Code' => 'FESP',
+                    'Type' => 'COMPLEMENTO',
+                    'AditionalInfo' => [
+                        ['Name' => 'RetencionISR',            'Data' => null, 'Value' => $retencionIsr],
+                        ['Name' => 'RetencionIVA',            'Data' => null, 'Value' => $retencionIva],
+                        ['Name' => 'TotalMenosRetenciones',   'Data' => null, 'Value' => $totalMenos],
+                    ],
+                ]],
+            ],
+        ];
+    }
+
+    public static function buildRdon(
+        string $taxid,
+        string $sellerName,
+        string $sellerAddress,
+        array $buyer,
+        array $items,
+        string $tipoPersoneria,
+        string $afiliacion = 'GEN',
+        string $amountStr = '',
+        string $observaciones = '-',
+        ?string $sellerEmail = null
+    ): array {
+        [$isoNow] = TaxHelper::gtNow();
+        [$lineItems, $grandTotal] = self::buildItems($items, false);
+
+        $seller = self::buildSeller(
+            $taxid, $sellerName, $sellerAddress,
+            $afiliacion, '4', '4',
+            email: $sellerEmail
+        );
+
+        $amt = $amountStr ?: $grandTotal;
+        $adenda = self::buildAdenda('RDON', $amt, count($items), $observaciones);
+
+        return [
+            'Version'     => '1.00',
+            'CountryCode' => 'GT',
+            'Header'      => [
+                'DocType'          => 'RDON',
+                'IssuedDateTime'   => $isoNow,
+                'Currency'         => 'GTQ',
+                'AdditionalIssueDocInfo' => [
+                    ['Name' => 'TipoPersoneria', 'Data' => null, 'Value' => $tipoPersoneria],
+                ],
+            ],
+            'Seller'      => $seller,
+            'Buyer'       => $buyer,
+            'ThirdParties' => null,
+            'Items'       => $lineItems,
+            'Totals'      => self::buildTotals($grandTotal, '0.000000', false),
+            'AdditionalDocumentInfo' => $adenda,
+        ];
+    }
+
+    public static function buildFpeq(
+        string $taxid,
+        string $sellerName,
+        string $sellerAddress,
+        array $buyer,
+        array $items,
+        string $amountStr = '',
+        string $observaciones = '-',
+        ?string $sellerEmail = null
+    ): array {
+        [$isoNow] = TaxHelper::gtNow();
+        [$lineItems, $grandTotal] = self::buildItems($items, false);
+
+        $seller = self::buildSeller(
+            $taxid, $sellerName, $sellerAddress,
+            'PEQ', '3', '1',
+            email: $sellerEmail
+        );
+
+        $amt = $amountStr ?: $grandTotal;
+        $adenda = self::buildAdenda('FPEQ', $amt, count($items), $observaciones);
+
+        return [
+            'Version'     => '1.00',
+            'CountryCode' => 'GT',
+            'Header'      => ['DocType' => 'FPEQ', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
+            'Seller'      => $seller,
+            'Buyer'       => $buyer,
+            'ThirdParties' => null,
+            'Items'       => $lineItems,
+            'Totals'      => self::buildTotals($grandTotal, '0.000000', false),
+            'AdditionalDocumentInfo' => $adenda,
+        ];
+    }
+
+    public static function buildReci(
+        string $taxid,
+        string $sellerName,
+        string $sellerAddress,
+        array $buyer,
+        array $items,
+        string $afiliacion = 'GEN',
+        string $amountStr = '',
+        string $observaciones = '-',
+        string $studentName = 'Estudiante',
+        string $studentId = '000000000',
+        string $academicUnit = '01',
+        ?string $sellerEmail = null
+    ): array {
+        [$isoNow] = TaxHelper::gtNow();
+        [$lineItems, $grandTotal] = self::buildItems($items, false);
+
+        $seller = self::buildSeller(
+            $taxid, $sellerName, $sellerAddress,
+            $afiliacion, '4', '5',
+            email: $sellerEmail
+        );
+
+        $amt = $amountStr ?: $grandTotal;
+        $extraInfo = [
+            ['Name' => 'Tipo',             'Data' => null, 'Value' => 'Universidad'],
+            ['Name' => 'NombreAlumno',     'Data' => null, 'Value' => $studentName],
+            ['Name' => 'Carne',            'Data' => null, 'Value' => $studentId],
+            ['Name' => 'UnidadAcademica',  'Data' => null, 'Value' => $academicUnit],
+        ];
+        $adenda = self::buildAdenda('RECI', $amt, count($items), $observaciones, $extraInfo);
+
+        return [
+            'Version'     => '1.00',
+            'CountryCode' => 'GT',
+            'Header'      => ['DocType' => 'RECI', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
+            'Seller'      => $seller,
+            'Buyer'       => $buyer,
+            'ThirdParties' => null,
+            'Items'       => $lineItems,
+            'Totals'      => self::buildTotals($grandTotal, '0.000000', false),
+            'AdditionalDocumentInfo' => $adenda,
+        ];
+    }
+
+    public static function buildCca(
+        string $taxid,
+        string $sellerName,
+        string $sellerAddress,
+        array $buyer,
+        array $items,
+        array $cobros,
+        string $afiliacion = 'GEN',
+        ?string $sellerEmail = null
+    ): array {
+        [$isoNow] = TaxHelper::gtNow();
+        [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
+
+        $seller = self::buildSeller(
+            $taxid, $sellerName, $sellerAddress,
+            $afiliacion, '1', '1',
+            email: $sellerEmail
+        );
+
+        $ccaData = [];
+        foreach ($cobros as $cobro) {
+            $ccaData[] = [
+                'Info' => [
+                    ['Name' => 'NITtercero',       'Data' => null, 'Value' => (string)$cobro['nit_tercero']],
+                    ['Name' => 'NumeroDocumento',   'Data' => null, 'Value' => (string)$cobro['numero_documento']],
+                    ['Name' => 'FechaDocumento',    'Data' => null, 'Value' => $cobro['fecha_documento']],
+                    ['Name' => 'Descripcion',       'Data' => null, 'Value' => $cobro['descripcion']],
+                    ['Name' => 'BaseImponible',     'Data' => null, 'Value' => TaxHelper::fmt((string)$cobro['base_imponible'], 2)],
+                    ['Name' => 'MontoCobroDAI',     'Data' => null, 'Value' => TaxHelper::fmt((string)($cobro['monto_cobro_dai'] ?? 0), 2)],
+                    ['Name' => 'MontoCobroIVA',     'Data' => null, 'Value' => TaxHelper::fmt((string)$cobro['monto_cobro_iva'], 2)],
+                    ['Name' => 'MontoCobroOtros',   'Data' => null, 'Value' => TaxHelper::fmt((string)($cobro['monto_cobro_otros'] ?? 0), 2)],
+                    ['Name' => 'MontoCobroTotal',   'Data' => null, 'Value' => TaxHelper::fmt((string)$cobro['monto_cobro_total'], 2)],
+                ],
+            ];
+        }
+
+        return [
+            'Version'     => '1.00',
+            'CountryCode' => 'GT',
+            'Header'      => ['DocType' => 'FACT', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
+            'Seller'      => $seller,
+            'Buyer'       => $buyer,
+            'ThirdParties' => null,
+            'Items'       => $lineItems,
+            'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
+            'AdditionalDocumentInfo' => [
+                'AdditionalInfo' => [[
+                    'Code'          => 'CCA',
+                    'Type'          => 'COMPLEMENTO',
+                    'AditionalData' => ['Data' => $ccaData],
+                ]],
+            ],
+        ];
+    }
+}
