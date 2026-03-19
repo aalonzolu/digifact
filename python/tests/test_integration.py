@@ -33,8 +33,8 @@ SKIP = not (TAXID and USERNAME and PASSWORD)
 
 # ── Shared client singleton — ONE login for the whole test session ────────────
 if not SKIP:
-    from digifact_fel import DigifactClient, DigifactError
-    from digifact_fel.tax import gt_now, calc_iva, fmt, pad_taxid
+    from digifact_sdk import DigifactClient, DigifactError
+    from digifact_sdk.tax import gt_now, calc_iva, fmt, pad_taxid
 
     _CLIENT = DigifactClient(
         taxid=TAXID,
@@ -55,24 +55,24 @@ def _client() -> "DigifactClient":
 
 class TestTaxCalcUnit(unittest.TestCase):
     def test_calc_iva(self):
-        from digifact_fel.tax import calc_iva, fmt
+        from digifact_sdk.tax import calc_iva, fmt
         taxable, iva = calc_iva("112")
         self.assertEqual(fmt(taxable), "100.000000")
         self.assertEqual(fmt(iva), "12.000000")
 
     def test_calc_iva_100(self):
-        from digifact_fel.tax import calc_iva
+        from digifact_sdk.tax import calc_iva
         taxable, iva = calc_iva("100")
         total = Decimal(taxable) + Decimal(iva)
         self.assertEqual(total, Decimal("100.000000"))
 
     def test_fmt(self):
-        from digifact_fel.tax import fmt
+        from digifact_sdk.tax import fmt
         self.assertEqual(fmt("1.5"), "1.500000")
         self.assertEqual(fmt(100), "100.000000")
 
     def test_pad_taxid(self):
-        from digifact_fel.tax import pad_taxid
+        from digifact_sdk.tax import pad_taxid
         self.assertEqual(pad_taxid("12345678"), "000012345678")
         self.assertEqual(pad_taxid("000012345678"), "000012345678")
         self.assertEqual(pad_taxid("GT.000012345678"), "000012345678")
@@ -80,11 +80,11 @@ class TestTaxCalcUnit(unittest.TestCase):
 
 class TestBuilderUnit(unittest.TestCase):
     def setUp(self):
-        from digifact_fel import builder
+        from digifact_sdk import builder
         self.builder = builder
 
     def _make_seller(self, doc_type="FACT"):
-        from digifact_fel.builder import _build_seller
+        from digifact_sdk.builder import _build_seller
         tipo_frase = None if doc_type == "FESP" else "1"
         escenario = None if doc_type == "FESP" else "1"
         return _build_seller(
@@ -97,7 +97,7 @@ class TestBuilderUnit(unittest.TestCase):
         )
 
     def test_fact_cf_structure(self):
-        from digifact_fel.builder import build_fact
+        from digifact_sdk.builder import build_fact
         buyer = {"TaxID": "CF", "Name": "CONSUMIDOR FINAL",
                  "AddressInfo": {"Address": "CIUDAD", "City": "01010",
                                  "District": "GUATEMALA", "State": "GUATEMALA", "Country": "GT"}}
@@ -117,12 +117,12 @@ class TestBuilderUnit(unittest.TestCase):
                          "FESP Seller must NOT include AdditionlInfo (frases not allowed)")
 
     def test_nabn_no_taxes(self):
-        from digifact_fel.builder import _build_items
+        from digifact_sdk.builder import _build_items
         items_list, _ = _build_items([{"description": "X", "qty": 1, "price": 100.0}], taxable=False)
         self.assertIsNone(items_list[0]["Taxes"])
 
     def test_ncre_complemento_keys(self):
-        from digifact_fel.builder import build_ncre
+        from digifact_sdk.builder import build_ncre
         buyer = {"TaxID": "12345678", "Name": "X",
                  "AddressInfo": {"Address": "C", "City": "01010",
                                  "District": "G", "State": "G", "Country": "GT"}}
@@ -140,7 +140,7 @@ class TestBuilderUnit(unittest.TestCase):
         self.assertNotIn("AditionalData", complemento)
 
     def test_ndeb_complemento_keys(self):
-        from digifact_fel.builder import build_ndeb
+        from digifact_sdk.builder import build_ndeb
         buyer = {"TaxID": "12345678", "Name": "X",
                  "AddressInfo": {"Address": "C", "City": "01010",
                                  "District": "G", "State": "G", "Country": "GT"}}
@@ -157,7 +157,7 @@ class TestBuilderUnit(unittest.TestCase):
         self.assertNotIn("AditionalData", complemento)
 
     def test_rdon_has_tipopersoneria(self):
-        from digifact_fel.builder import build_rdon
+        from digifact_sdk.builder import build_rdon
         buyer = {"TaxID": "12345678", "Name": "X",
                  "AddressInfo": {"Address": "C", "City": "01010",
                                  "District": "G", "State": "G", "Country": "GT"}}

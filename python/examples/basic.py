@@ -15,7 +15,7 @@ import sys
 # Allow running from the sdk/python directory without installing
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from digifact_fel import DigifactClient, DigifactError
+from digifact_sdk import DigifactClient, DigifactError
 
 TAXID = os.environ.get("DIGIFACT_TAXID", "")
 USERNAME = os.environ.get("DIGIFACT_USERNAME", "")

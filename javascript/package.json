@@ -1,5 +1,5 @@
 {
-  "name": "digifact-fel",
+  "name": "digifact-sdk",
   "version": "2.0.0",
   "description": "JavaScript SDK for Digifact FEL Guatemala e-invoicing API",
   "type": "module",

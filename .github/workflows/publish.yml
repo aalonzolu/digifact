@@ -53,7 +53,7 @@ jobs:
     needs: test
     environment:
       name: pypi
-      url: https://pypi.org/p/digifact-fel
+      url: https://pypi.org/p/digifact-sdk
     steps:
       - uses: actions/checkout@v4
 
@@ -98,7 +98,7 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
-          cd javascript && npm version "$VERSION" --no-git-tag-version
+          cd javascript && npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to npm
         working-directory: javascript

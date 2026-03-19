@@ -5,7 +5,7 @@ Python SDK for the [Digifact](https://www.digifact.com.gt/) FEL (Factura Electr√
 ## Installation
 
 ```bash
-pip install digifact-fel
+pip install digifact-sdk
 ```
 
 Or from source:
@@ -17,7 +17,7 @@ pip install -e sdk/python/
 ## Quick start
 
 ```python
-from digifact_fel import DigifactClient
+from digifact_sdk import DigifactClient
 
 client = DigifactClient(
     taxid="12345678",
@@ -164,7 +164,7 @@ python -m pytest tests/ -v
 ## Error handling
 
 ```python
-from digifact_fel import (
+from digifact_sdk import (
     DigifactError,          # base
     DigifactAuthError,      # auth failure
     DigifactApiError,       # HTTP / API error

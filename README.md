@@ -4,18 +4,18 @@ SDKs oficiales para la API Digifact FEL NUC GT — facturación electrónica SAT
 
 | SDK | Paquete | Versión mínima |
 |-----|---------|---------------|
-| [Python](./python/) | [`digifact-fel`](https://pypi.org/p/digifact-fel) (PyPI) | Python 3.10+ |
-| [JavaScript](./javascript/) | [`digifact-fel`](https://www.npmjs.com/package/digifact-fel) (npm) | Node 18+ |
+| [Python](./python/) | [`digifact-sdk`](https://pypi.org/p/digifact-sdk) (PyPI) | Python 3.10+ |
+| [JavaScript](./javascript/) | [`digifact-sdk`](https://www.npmjs.com/package/digifact-sdk) (npm) | Node 18+ |
 | [PHP](./php/) | [`aalonzolu/digifact`](https://packagist.org/packages/aalonzolu/digifact) (Packagist) | PHP 8.1+ |
 
 ## Instalación rápida
 
 ```bash
 # Python
-pip install digifact-fel
+pip install digifact-sdk
 
 # JavaScript
-npm install digifact-fel
+npm install digifact-sdk
 
 # PHP
 composer require aalonzolu/digifact
@@ -25,7 +25,7 @@ composer require aalonzolu/digifact
 
 ```python
 # Python
-from digifact_fel import DigifactClient
+from digifact_sdk import DigifactClient
 
 client = DigifactClient(
     taxid="12345678",
@@ -41,7 +41,7 @@ print(result.auth_number)
 
 ```js
 // JavaScript
-import { DigifactClient } from 'digifact-fel';
+import { DigifactClient } from 'digifact-sdk';
 
 const client = new DigifactClient({
   taxid: '12345678', username: 'FELUSER', password: '...', environment: 'test',
@@ -93,8 +93,8 @@ DIGIFACT_PASSWORD=...
 ## Estructura del repositorio
 
 ```
-digifact-fel/
-├── python/          SDK Python — pyproject.toml, digifact_fel/
+digifact-sdk/
+├── python/          SDK Python — pyproject.toml, digifact_sdk/
 ├── javascript/      SDK JavaScript — package.json, src/
 ├── php/             SDK PHP — composer.json, src/
 ├── docs/            Documentación y colección Postman
