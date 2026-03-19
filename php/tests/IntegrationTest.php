@@ -108,7 +108,7 @@ class IntegrationTest extends TestCase
     public function testLookupNit(): void
     {
         $client = $this->requireClient();
-        $info = $client->lookupNit('12345678');
+        $info = $client->lookupNit('77454820');
         $this->assertNotEmpty($info['name']);
         echo "\n  NIT name: " . $info['name'];
     }
@@ -126,7 +126,7 @@ class IntegrationTest extends TestCase
     public function testFactNit(): void
     {
         $client = $this->requireClient();
-        $result = $client->invoice('12345678', [
+        $result = $client->invoice('77454820', [
             ['description' => 'Laptop', 'qty' => 1, 'price' => 5000.00, 'type' => 'Bien'],
             ['description' => 'Soporte', 'qty' => 1, 'price' => 500.00],
         ]);
@@ -149,7 +149,7 @@ class IntegrationTest extends TestCase
     {
         $client = $this->requireClient();
         [, , $dateOnly] = TaxHelper::gtNow();
-        $result = $client->invoice('12345678', [
+        $result = $client->invoice('77454820', [
             ['description' => 'Servicio FCAM', 'qty' => 1, 'price' => 30.00],
         ], [
             'doc_type'      => 'FCAM',
@@ -166,7 +166,7 @@ class IntegrationTest extends TestCase
 
         // First emit FCAM as origin
         try {
-            $fcam = $client->invoice('12345678', [
+            $fcam = $client->invoice('77454820', [
                 ['description' => 'Origen FCAM', 'qty' => 1, 'price' => 50.00],
             ], [
                 'doc_type'      => 'FCAM',
@@ -184,14 +184,14 @@ class IntegrationTest extends TestCase
         ];
 
         // NDEB
-        $ndeb = $client->debitNote('12345678', [
+        $ndeb = $client->debitNote('77454820', [
             ['description' => 'Cargo NDEB', 'qty' => 1, 'price' => 19.00, 'type' => 'Bien'],
         ], $origin, 'Cargo de prueba');
         $this->assertNotEmpty($ndeb->authNumber);
         echo "\n  NDEB auth: " . $ndeb->authNumber;
 
         // NCRE
-        $ncre = $client->creditNote('12345678', [
+        $ncre = $client->creditNote('77454820', [
             ['description' => 'Devolución NCRE', 'qty' => 1, 'price' => 10.00],
         ], $origin, 'Producto defectuoso');
         $this->assertNotEmpty($ncre->authNumber);
@@ -201,7 +201,7 @@ class IntegrationTest extends TestCase
     public function testNabn(): void
     {
         $client = $this->requireClient();
-        $result = $client->invoice('12345678', [
+        $result = $client->invoice('77454820', [
             ['description' => 'RETENEDOR BLANCO', 'qty' => 1, 'price' => 100.00, 'type' => 'Bien'],
         ], ['doc_type' => 'NABN']);
         $this->assertNotEmpty($result->authNumber);
@@ -221,7 +221,7 @@ class IntegrationTest extends TestCase
     public function testRdon(): void
     {
         $client = $this->requireClient();
-        $result = $client->invoice('12345678', [
+        $result = $client->invoice('77454820', [
             ['description' => 'Donación', 'qty' => 1, 'price' => 50.00, 'type' => 'Bien'],
         ], ['doc_type' => 'RDON', 'tipo_personeria' => '719']);
         $this->assertNotEmpty($result->authNumber);
@@ -231,7 +231,7 @@ class IntegrationTest extends TestCase
     public function testReci(): void
     {
         $client = $this->requireClient();
-        $result = $client->invoice('12345678', [
+        $result = $client->invoice('77454820', [
             ['description' => 'Pago universitario', 'qty' => 1, 'price' => 250.00, 'type' => 'Bien'],
         ], ['doc_type' => 'RECI']);
         $this->assertNotEmpty($result->authNumber);

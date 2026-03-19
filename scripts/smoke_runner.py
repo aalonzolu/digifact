@@ -19,7 +19,7 @@ PADDED = "".join(ch for ch in TAXID if ch.isdigit()).rjust(12, "0")
 FULL_USERNAME = f"GT.{PADDED}.{USERNAME}"
 
 # Buyer NIT for non-CF DTEs (datos de prueba ficticios)
-BUYER_NIT = "12345678"
+BUYER_NIT = "77454820"
 BUYER_NIT_NAME = "EMPRESA EJEMPLO SOCIEDAD ANONIMA"
 BUYER_NIT_ADDRESS = "1 AVENIDA 1-00 ZONA 1"
 BUYER_NIT_CITY = "01001"

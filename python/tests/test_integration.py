@@ -184,14 +184,14 @@ class TestLogin(unittest.TestCase):
 @unittest.skipIf(SKIP, SKIP_REASON)
 class TestLookupNit(unittest.TestCase):
     def test_lookup_nit_known(self):
-        info = _client().lookup_nit("12345678")
+        info = _client().lookup_nit("77454820")
         self.assertIn("name", info)
         self.assertTrue(info["name"], "Expected non-empty name")
 
     def test_lookup_nit_caches(self):
         c = _client()
-        info1 = c.lookup_nit("12345678")
-        info2 = c.lookup_nit("12345678")
+        info1 = c.lookup_nit("77454820")
+        info2 = c.lookup_nit("77454820")
         self.assertEqual(info1, info2)
 
 
@@ -220,7 +220,7 @@ class TestFactCF(unittest.TestCase):
 class TestFactNit(unittest.TestCase):
     def test_fact_nit(self):
         result = _client().invoice(
-            "12345678",
+            "77454820",
             [
                 {"description": "Laptop", "qty": 1, "price": 5000.00, "type": "Bien"},
                 {"description": "Soporte anual", "qty": 1, "price": 500.00},
@@ -246,7 +246,7 @@ class TestFCAM(unittest.TestCase):
     def test_fcam(self):
         _, _, date_only = gt_now()
         result = _client().invoice(
-            "12345678",
+            "77454820",
             [{"description": "Servicio de prueba", "qty": 1, "price": 30.00}],
             doc_type="FCAM",
             payment_terms=[{"date": date_only, "amount": 30.00}],
@@ -268,7 +268,7 @@ class TestNDEBandNCRE(unittest.TestCase):
         _, _, cls._origin_date = gt_now()
         try:
             cls._fcam = _client().invoice(
-                "12345678",
+                "77454820",
                 [{"description": "Servicio origen", "qty": 1, "price": 50.00}],
                 doc_type="FCAM",
                 payment_terms=[{"date": cls._origin_date, "amount": 50.00}],
@@ -289,7 +289,7 @@ class TestNDEBandNCRE(unittest.TestCase):
         if not self._fcam:
             self.skipTest(getattr(self, "_skip_reason", "FCAM not available"))
         result = _client().debit_note(
-            "12345678",
+            "77454820",
             [{"description": "Cargo adicional", "qty": 1, "price": 19.00, "type": "Bien"}],
             self._origin(),
             reason="Cargo de prueba",
@@ -301,7 +301,7 @@ class TestNDEBandNCRE(unittest.TestCase):
         if not self._fcam:
             self.skipTest(getattr(self, "_skip_reason", "FCAM not available"))
         result = _client().credit_note(
-            "12345678",
+            "77454820",
             [{"description": "Devolución", "qty": 1, "price": 10.00, "type": "Bien"}],
             self._origin(),
             reason="Producto defectuoso",
@@ -314,7 +314,7 @@ class TestNDEBandNCRE(unittest.TestCase):
 class TestNABN(unittest.TestCase):
     def test_nabn(self):
         result = _client().invoice(
-            "12345678",
+            "77454820",
             [{"description": "RETENEDOR BLANCO", "qty": 1, "price": 100.00, "type": "Bien"}],
             doc_type="NABN",
         )
@@ -338,7 +338,7 @@ class TestFESP(unittest.TestCase):
 class TestRDON(unittest.TestCase):
     def test_rdon(self):
         result = _client().invoice(
-            "12345678",
+            "77454820",
             [{"description": "Donación", "qty": 1, "price": 50.00, "type": "Bien"}],
             doc_type="RDON",
             tipo_personeria="719",
@@ -351,7 +351,7 @@ class TestRDON(unittest.TestCase):
 class TestRECI(unittest.TestCase):
     def test_reci(self):
         result = _client().invoice(
-            "12345678",
+            "77454820",
             [{"description": "Pago universitario", "qty": 1, "price": 250.00, "type": "Bien"}],
             doc_type="RECI",
         )

@@ -59,7 +59,7 @@ jobs:
           DIGIFACT_TAXID: ${{ secrets.DIGIFACT_TAXID }}
           DIGIFACT_USERNAME: ${{ secrets.DIGIFACT_USERNAME }}
           DIGIFACT_PASSWORD: ${{ secrets.DIGIFACT_PASSWORD }}
-        run: python -m pytest tests/ -v --timeout=300
+        run: python -m pytest tests/ -v
 
   # ── PHP SDK ─────────────────────────────────────────────────────────────────
   php-unit:

@@ -30,22 +30,4 @@ class DigifactException extends \RuntimeException
     }
 }
 
-/**
- * Authentication / token error.
- */
-class DigifactAuthException extends DigifactException {}
 
-/**
- * API returned a non-success HTTP response.
- */
-class DigifactApiException extends DigifactException {}
-
-/**
- * Payload validation error (SAT or Digifact rejection).
- */
-class DigifactValidationException extends DigifactException {}
-
-/**
- * NIT lookup returned no result.
- */
-class DigifactNitNotFoundException extends DigifactException {}

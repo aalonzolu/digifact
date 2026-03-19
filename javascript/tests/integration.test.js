@@ -147,15 +147,15 @@ if (SKIP) {
   });
 
   describe('Integration: NIT lookup', () => {
-    test('lookupNit 12345678 returns name', async () => {
-      const info = await CLIENT.lookupNit('12345678');
+    test('lookupNit 77454820 returns name', async () => {
+      const info = await CLIENT.lookupNit('77454820');
       assert.ok(info.name);
       console.log(`  NIT name: ${info.name}`);
     });
 
     test('lookupNit caches result (no extra HTTP call)', async () => {
-      const i1 = await CLIENT.lookupNit('12345678');
-      const i2 = await CLIENT.lookupNit('12345678');
+      const i1 = await CLIENT.lookupNit('77454820');
+      const i2 = await CLIENT.lookupNit('77454820');
       assert.deepEqual(i1, i2);
     });
   });
@@ -172,7 +172,7 @@ if (SKIP) {
 
   describe('Integration: FACT NIT', () => {
     test('emit FACT to NIT', async () => {
-      const result = await CLIENT.invoice('12345678', [
+      const result = await CLIENT.invoice('77454820', [
         { description: 'Laptop', qty: 1, price: 5000, type: 'Bien' },
         { description: 'Soporte', qty: 1, price: 500 },
       ]);
@@ -201,7 +201,7 @@ if (SKIP) {
       const [, , dateOnly] = gtNow();
       originDate = dateOnly;
       try {
-        fcamResult = await CLIENT.invoice('12345678', [
+        fcamResult = await CLIENT.invoice('77454820', [
           { description: 'Servicio origen', qty: 1, price: 50 },
         ], { doc_type: 'FCAM', payment_terms: [{ date: dateOnly, amount: 50 }] });
       } catch (e) {
@@ -223,7 +223,7 @@ if (SKIP) {
         series: fcamResult.series,
         number: fcamResult.number,
       };
-      const result = await CLIENT.debitNote('12345678', [
+      const result = await CLIENT.debitNote('77454820', [
         { description: 'Cargo NDEB', qty: 1, price: 19, type: 'Bien' },
       ], origin, 'Cargo de prueba');
       assert.ok(result.authNumber);
@@ -238,7 +238,7 @@ if (SKIP) {
         series: fcamResult.series,
         number: fcamResult.number,
       };
-      const result = await CLIENT.creditNote('12345678', [
+      const result = await CLIENT.creditNote('77454820', [
         { description: 'Devolución NCRE', qty: 1, price: 10 },
       ], origin, 'Producto defectuoso');
       assert.ok(result.authNumber);
@@ -248,7 +248,7 @@ if (SKIP) {
 
   describe('Integration: NABN', () => {
     test('emit NABN', async () => {
-      const result = await CLIENT.invoice('12345678', [
+      const result = await CLIENT.invoice('77454820', [
         { description: 'RETENEDOR BLANCO', qty: 1, price: 100, type: 'Bien' },
       ], { doc_type: 'NABN' });
       assert.ok(result.authNumber);
@@ -268,7 +268,7 @@ if (SKIP) {
 
   describe('Integration: RDON', () => {
     test('emit RDON', async () => {
-      const result = await CLIENT.invoice('12345678', [
+      const result = await CLIENT.invoice('77454820', [
         { description: 'Donación', qty: 1, price: 50, type: 'Bien' },
       ], { doc_type: 'RDON', tipo_personeria: '719' });
       assert.ok(result.authNumber);
@@ -278,7 +278,7 @@ if (SKIP) {
 
   describe('Integration: RECI', () => {
     test('emit RECI', async () => {
-      const result = await CLIENT.invoice('12345678', [
+      const result = await CLIENT.invoice('77454820', [
         { description: 'Pago universitario', qty: 1, price: 250, type: 'Bien' },
       ], { doc_type: 'RECI' });
       assert.ok(result.authNumber);
