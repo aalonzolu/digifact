@@ -1,6 +1,6 @@
 # Digifact FEL SDK
 
-SDKs oficiales para la API Digifact FEL NUC GT — facturación electrónica SAT Guatemala.
+SDKs para la API Digifact FEL NUC GT — facturación electrónica SAT Guatemala.
 
 | SDK | Paquete | Versión mínima |
 |-----|---------|---------------|
@@ -116,18 +116,6 @@ git push origin v1.2.3
 
 El workflow `publish.yml` se activa automáticamente y publica los tres paquetes.
 
-**Secrets requeridos en GitHub:**
-
-| Secret | Descripción |
-|--------|-------------|
-| `DIGIFACT_TAXID` | NIT del emisor de pruebas |
-| `DIGIFACT_USERNAME` | Usuario de pruebas |
-| `DIGIFACT_PASSWORD` | Contraseña |
-| `NPM_TOKEN` | Token de npm (`npm token create`) |
-| `PACKAGIST_USERNAME` | Usuario de packagist.org |
-| `PACKAGIST_API_TOKEN` | Token de packagist.org/profile |
-
-Para PyPI se usa **Trusted Publishing** (sin token) — configura el proyecto en pypi.org → Publishing → Add publisher con `owner/repo` y environment `pypi`.
 
 ## Documentación adicional
 
