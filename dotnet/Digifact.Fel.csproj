@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- NuGet package metadata -->
+    <PackageId>Digifact.Fel</PackageId>
+    <Version>2.0.0</Version>
+    <Authors>AALONZOLU</Authors>
+    <Description>C# SDK for Digifact FEL Guatemala e-invoicing API (v2)</Description>
+    <PackageTags>digifact;fel;guatemala;factura;e-invoicing;sat</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/aalonzolu/digifact</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/aalonzolu/digifact</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../README.md" Pack="true" PackagePath="\"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+    <Compile Remove="examples/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Digifact.Fel.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

@@ -7,6 +7,7 @@ on:
       - 'python/**'
       - 'php/**'
       - 'javascript/**'
+      - 'dotnet/**'
       - 'scripts/validate_sdks.py'
       - '.github/workflows/ci.yml'
   pull_request:
@@ -15,6 +16,7 @@ on:
       - 'python/**'
       - 'php/**'
       - 'javascript/**'
+      - 'dotnet/**'
 
 jobs:
   # ── Python SDK ──────────────────────────────────────────────────────────────
@@ -149,12 +151,50 @@ jobs:
           DIGIFACT_PASSWORD: ${{ secrets.DIGIFACT_PASSWORD }}
         run: node --test tests/integration.test.js
 
+  # ── .NET SDK ────────────────────────────────────────────────────────────────
+  dotnet-unit:
+    name: .NET ${{ matrix.dotnet-version }} — unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dotnet-version: ["8.0", "9.0"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ matrix.dotnet-version }}
+
+      - name: Unit tests
+        working-directory: dotnet
+        run: dotnet test tests/Digifact.Fel.Tests.csproj --framework net10.0 --verbosity minimal
+
+  dotnet-integration:
+    name: .NET — integration tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.event.repository.fork == false }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0"
+
+      - name: Integration tests
+        working-directory: dotnet
+        env:
+          DIGIFACT_TAXID: ${{ secrets.DIGIFACT_TAXID }}
+          DIGIFACT_USERNAME: ${{ secrets.DIGIFACT_USERNAME }}
+          DIGIFACT_PASSWORD: ${{ secrets.DIGIFACT_PASSWORD }}
+        run: dotnet run --project examples/Basic
+
   # ── Validate all examples ───────────────────────────────────────────────────
   validate-examples:
     name: Validate SDK examples
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' && github.event.repository.fork == false }}
-    needs: [python-unit, php-unit, javascript-unit]
+    needs: [python-unit, php-unit, javascript-unit, dotnet-unit]
     steps:
       - uses: actions/checkout@v4
 

@@ -7,6 +7,7 @@ SDKs para la API Digifact FEL NUC GT — facturación electrónica SAT Guatemala
 | [Python](./python/) | [`digifact-sdk`](https://pypi.org/p/digifact-sdk) (PyPI) | Python 3.10+ |
 | [JavaScript](./javascript/) | [`digifact-sdk`](https://www.npmjs.com/package/digifact-sdk) (npm) | Node 18+ |
 | [PHP](./php/) | [`aalonzolu/digifact`](https://packagist.org/packages/aalonzolu/digifact) (Packagist) | PHP 8.1+ |
+| [C# / .NET](./dotnet/) | [`Digifact.Fel`](https://www.nuget.org/packages/Digifact.Fel) (NuGet) | .NET 8+ |
 
 ## Instalación rápida
 
@@ -19,9 +20,12 @@ npm install digifact-sdk
 
 # PHP
 composer require aalonzolu/digifact
+
+# C# / .NET
+dotnet add package Digifact.Fel
 ```
 
-## Uso básico (los 3 SDKs)
+## Uso básico (los 4 SDKs)
 
 ```python
 # Python
@@ -66,6 +70,20 @@ $result = $client->invoice('CF', [
 echo $result->authNumber;
 ```
 
+```csharp
+// C# / .NET
+using Digifact.Fel;
+
+using var client = new DigifactClient(new DigifactOptions {
+  Taxid = "12345678", Username = "FELUSER",
+  Password = "...", Environment = "test",
+});
+var result = await client.InvoiceAsync("CF", new[] {
+  new LineItem { Description = "Servicio", Qty = 1, Price = 100 },
+});
+Console.WriteLine(result.AuthNumber);
+```
+
 ## Tipos de DTE soportados
 
 | Método | DTE | Descripción |
@@ -97,13 +115,14 @@ digifact-sdk/
 ├── python/          SDK Python — pyproject.toml, digifact_sdk/
 ├── javascript/      SDK JavaScript — package.json, src/
 ├── php/             SDK PHP — composer.json, src/
+├── dotnet/          SDK C#/.NET — Digifact.Fel.csproj, *.cs
 ├── docs/            Documentación y colección Postman
 │   └── postman/     Colección y ambiente para Postman
 ├── scripts/         Herramientas de validación y smoke tests
 └── .github/
     └── workflows/
         ├── ci.yml       Tests en cada push/PR
-        └── publish.yml  Publicación a PyPI/npm/Packagist al hacer tag
+        └── publish.yml  Publicación a PyPI/npm/Packagist/NuGet al hacer tag
 ```
 
 ## Publicar una release
@@ -114,7 +133,7 @@ git tag v1.2.3
 git push origin v1.2.3
 ```
 
-El workflow `publish.yml` se activa automáticamente y publica los tres paquetes.
+El workflow `publish.yml` se activa automáticamente y publica los cuatro paquetes.
 
 
 ## Documentación adicional
