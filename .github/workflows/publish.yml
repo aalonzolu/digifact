@@ -142,12 +142,16 @@ jobs:
       - name: NuGet login (trusted publishing — no API key needed)
         uses: NuGet/login@v1
         id: nuget-login
+        with:
+          user: ${{ secrets.NUGET_USERNAME }}
         # Configure trusted publishing on nuget.org:
         #   nuget.org → Trusted Publishing → Add publisher:
         #     Repository Owner: aalonzolu
         #     Repository:       digifact
         #     Workflow file:    publish.yml
         #     Environment:      (leave blank)
+        # Required secret:
+        #   NUGET_USERNAME — your nuget.org username (not email)
 
       - name: Publish to NuGet
         working-directory: dotnet
