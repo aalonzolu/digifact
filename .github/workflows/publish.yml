@@ -119,9 +119,6 @@ jobs:
     name: Publish to NuGet
     runs-on: ubuntu-latest
     needs: test
-    environment:
-      name: nuget
-      url: https://www.nuget.org/packages/Digifact.Fel
     permissions:
       contents: read
       id-token: write  # required for NuGet trusted publishing (OIDC → temp API key)
@@ -150,7 +147,7 @@ jobs:
         #     Repository Owner: aalonzolu
         #     Repository:       digifact
         #     Workflow file:    publish.yml
-        #     Environment:      nuget
+        #     Environment:      (leave blank)
 
       - name: Publish to NuGet
         working-directory: dotnet

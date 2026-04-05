@@ -141,5 +141,6 @@ El workflow `publish.yml` se activa automáticamente y publica los cuatro paquet
 - [Python SDK](./python/README.md)
 - [JavaScript SDK](./javascript/README.md)
 - [PHP SDK](./php/README.md)
+- [C# / .NET SDK](./dotnet/README.md)
 - [Documentación SAT](./docs/documentacion_sat.md)
 - [Colección Postman](./docs/postman/)
