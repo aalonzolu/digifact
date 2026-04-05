@@ -140,7 +140,7 @@ jobs:
         run: dotnet pack Digifact.Fel.csproj --configuration Release --output nupkgs
 
       - name: NuGet login (trusted publishing — no API key needed)
-        uses: NuGet/login@v2
+        uses: NuGet/login@v1
         id: nuget-login
         # Configure trusted publishing on nuget.org:
         #   nuget.org → Trusted Publishing → Add publisher:
