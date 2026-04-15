@@ -34,6 +34,21 @@ const result3 = await client.invoice(
   [{ description: 'Producto', qty: 2, price: 50.00 }]
 );
 
+// Full NIT buyer with explicit details (no auto-lookup)
+const result3b = await client.invoice(
+  {
+    taxid:    '12345678',
+    name:     'EMPRESA EJEMPLO S.A.',
+    address:  '6 AV 6-48 ZONA 9',
+    city:     '01009',
+    district: 'GUATEMALA',
+    state:    'GUATEMALA',
+    country:  'GT',
+    email:    'facturacion@empresa.com',  // optional
+  },
+  [{ description: 'Producto', qty: 1, price: 100.00 }]
+);
+
 // FCAM (Factura Cambiaria)
 const result4 = await client.invoice('12345678', [
   { description: 'Servicio', qty: 1, price: 500.00 }

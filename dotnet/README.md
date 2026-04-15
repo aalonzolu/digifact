@@ -46,6 +46,18 @@ var result3 = await client.InvoiceAsync(
     new[] { new LineItem { Description = "Producto", Qty = 2, Price = 50.00m } }
 );
 
+// FACT to NIT with full buyer details (no auto-lookup)
+var result3b = await client.InvoiceAsync(
+    BuyerDetails.FromNit(
+        nit:     "12345678",
+        name:    "EMPRESA EJEMPLO S.A.",
+        address: "6 AV 6-48 ZONA 9",
+        city:    "01009",
+        email:   "facturacion@empresa.com"  // optional
+    ),
+    new[] { new LineItem { Description = "Producto", Qty = 1, Price = 100.00m } }
+);
+
 // FCAM (Factura Cambiaria)
 var result4 = await client.InvoiceAsync("12345678", new[]
 {
@@ -94,7 +106,7 @@ var stationClient = new DigifactClient(new DigifactOptions
 });
 // PetroleoAmount filled in automatically from PetroleoRates
 var fuel = await stationClient.FuelInvoiceAsync(
-    new BuyerDetails("CF"),
+    "CF",
     new[]
     {
         new FuelLineItem { Description = "GASOLINA SUPER",    Qty = 30m, Price = 35.00m, PetroleoCode = "1" },
@@ -108,7 +120,7 @@ Console.WriteLine(fuel.AuthNumber);
 
 // Alternative: explicit PetroleoAmount per item (no PetroleoRates needed)
 var fuel2 = await client.FuelInvoiceAsync(
-    new BuyerDetails("CF"),
+    "CF",
     new[] { new FuelLineItem { Description = "GASOLINA SUPER", Qty = 1m, Price = 35.00m, PetroleoAmount = 4.70m, PetroleoCode = "1" } });
 ```
 

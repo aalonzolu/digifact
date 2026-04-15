@@ -115,6 +115,25 @@ class IntegrationTest extends TestCase
         $this->assertSame('106.000000', $r['lineTotal']);
     }
 
+    public function testBuyerNitFullDetails(): void
+    {
+        $buyer = DteBuilder::buyerNit(
+            '12345678',
+            'EMPRESA EJEMPLO S.A.',
+            '6 AV 6-48 ZONA 9',
+            '01009',
+            'GUATEMALA',
+            'GUATEMALA',
+            'GT',
+            'test@example.com'
+        );
+        $this->assertSame('12345678', $buyer['TaxID']);
+        $this->assertSame('EMPRESA EJEMPLO S.A.', $buyer['Name']);
+        $this->assertSame('6 AV 6-48 ZONA 9', $buyer['AddressInfo']['Address']);
+        $this->assertSame('01009', $buyer['AddressInfo']['City']);
+        $this->assertSame('test@example.com', $buyer['Contact']['EmailList']['Email'][0]);
+    }
+
     // ── Unit: petroleo_rates auto-fill / validation ───────────────────────────
 
     private function invokeApplyPetroleoRates(DigifactClient $client, array $items): array

@@ -91,7 +91,7 @@ Console.WriteLine("\nEmitting FACT Combustible...");
 try
 {
     var resultFuel = await client.FuelInvoiceAsync(
-        new BuyerDetails("CF"),
+        "CF",
         new[]
         {
             // Only PetroleoCode needed when PetroleoRates was set in DigifactOptions.

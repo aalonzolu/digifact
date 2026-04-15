@@ -244,6 +244,20 @@ public class UnitTests
     }
 
     [Fact]
+    public void BuyerDetails_FromNit_FullParams()
+    {
+        var buyer = BuyerDetails.FromNit(
+            "12345678", "EMPRESA SA",
+            address: "6 AV 6-48 ZONA 9",
+            city: "01009",
+            email: "test@example.com");
+        Assert.False(buyer.NeedsLookup);
+        Assert.Equal("6 AV 6-48 ZONA 9", buyer.Address);
+        Assert.Equal("01009", buyer.City);
+        Assert.Equal("test@example.com", buyer.Email);
+    }
+
+    [Fact]
     public void BuyerDetails_FromCui()
     {
         var buyer = BuyerDetails.FromCui("3456789012345", "NOMBRE PERSONA");

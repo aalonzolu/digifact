@@ -130,6 +130,16 @@ describe('Unit: builder', () => {
     assert.equal(comp.Code, 'NCRE');
     assert.ok('AditionalInfo' in comp);
   });
+
+  test('buyerNit with full address fields', () => {
+    const buyer = buyerNit('12345678', 'EMPRESA EJEMPLO S.A.', '6 AV 6-48 ZONA 9', '01009',
+      'GUATEMALA', 'GUATEMALA', 'GT', 'test@example.com');
+    assert.equal(buyer.TaxID, '12345678');
+    assert.equal(buyer.Name, 'EMPRESA EJEMPLO S.A.');
+    assert.equal(buyer.AddressInfo.Address, '6 AV 6-48 ZONA 9');
+    assert.equal(buyer.AddressInfo.City, '01009');
+    assert.equal(buyer.Contact.EmailList.Email[0], 'test@example.com');
+  });
 });
 
 describe('Unit: calcFuelLine', () => {

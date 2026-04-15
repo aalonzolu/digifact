@@ -239,6 +239,23 @@ class TestBuilderUnit(unittest.TestCase):
         names = [d["Name"] for d in doc_info]
         self.assertIn("TipoPersoneria", names)
 
+    def test_buyer_nit_full_details(self):
+        from digifact_sdk.builder import _build_buyer_nit
+        buyer = _build_buyer_nit(
+            "12345678", "EMPRESA EJEMPLO S.A.",
+            address="6 AV 6-48 ZONA 9",
+            city="01009",
+            district="GUATEMALA",
+            state="GUATEMALA",
+            country="GT",
+            email="test@example.com",
+        )
+        self.assertEqual(buyer["TaxID"], "12345678")
+        self.assertEqual(buyer["Name"], "EMPRESA EJEMPLO S.A.")
+        self.assertEqual(buyer["AddressInfo"]["Address"], "6 AV 6-48 ZONA 9")
+        self.assertEqual(buyer["AddressInfo"]["City"], "01009")
+        self.assertEqual(buyer["Contact"]["EmailList"]["Email"][0], "test@example.com")
+
     def test_build_fact_combustible_structure(self):
         from digifact_sdk.builder import build_fact_combustible
         buyer = {"TaxID": "CF", "Name": "CONSUMIDOR FINAL",

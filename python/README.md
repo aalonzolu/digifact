@@ -48,6 +48,21 @@ result = client.invoice(
     items=[{"description": "Producto", "qty": 2, "price": 50.00}]
 )
 
+# Full NIT buyer with explicit details (no auto-lookup)
+result = client.invoice(
+    buyer={
+        "taxid":    "12345678",
+        "name":     "EMPRESA EJEMPLO S.A.",
+        "address":  "6 AV 6-48 ZONA 9",
+        "city":     "01009",
+        "district": "GUATEMALA",
+        "state":    "GUATEMALA",
+        "country":  "GT",
+        "email":    "facturacion@empresa.com",  # optional
+    },
+    items=[{"description": "Producto", "qty": 1, "price": 100.00}]
+)
+
 # FCAM (Factura Cambiaria)
 result = client.invoice(
     buyer="12345678",
