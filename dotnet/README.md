@@ -129,7 +129,7 @@ var fuel2 = await client.FuelInvoiceAsync(
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `Description` | `string` | required | Line description |
-| `Price` | `decimal` | required | Full consumer price per unit (PETROLEO + IVA-inclusive) |
+| `Price` | `decimal` | required | Full consumer price per unit (PETROLEO + IVA-inclusive). This is what the customer pays at the pump. If the receipt shows a unit price *without* PETROLEO/IDP (e.g. `37.99m`), add the per-unit IDP rate: `Price = 37.99m + 4.70m = 42.69m`. |
 | `Qty` | `decimal` | `1` | Quantity |
 | `Type` | `string` | `"Bien"` | `"Bien"` or `"Servicio"` |
 | `UnitOfMeasure` | `string` | `"UNI"` | SAT unit code |

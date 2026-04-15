@@ -204,7 +204,7 @@ result = client.fuel_invoice(
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `description` | `str` | required | Line description |
-| `price` | `float\|Decimal` | required | Full consumer price per unit (PETROLEO + IVA-inclusive) |
+| `price` | `float\|Decimal` | required | Full consumer price per unit (PETROLEO + IVA-inclusive). This is what the customer pays at the pump. If the receipt shows a unit price *without* PETROLEO/IDP (e.g. `37.99`), add the per-unit IDP rate: `price = 37.99 + 4.70 = 42.69`. |
 | `qty` | `float\|Decimal` | `1` | Quantity |
 | `type` | `str` | `"Servicio"` | `"Bien"` or `"Servicio"` |
 | `unit_of_measure` | `str` | `"UNI"` | SAT unit code |

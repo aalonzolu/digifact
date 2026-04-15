@@ -122,7 +122,7 @@ $result2 = $client->fuelInvoice('CF', [
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `description` | `string` | required | Line description |
-| `price` | `float` | required | Full consumer price per unit (PETROLEO + IVA-inclusive) |
+| `price` | `float` | required | Full consumer price per unit (PETROLEO + IVA-inclusive). This is what the customer pays at the pump. If the receipt shows a unit price *without* PETROLEO/IDP (e.g. `37.99`), add the per-unit IDP rate: `price = 37.99 + 4.70 = 42.69`. |
 | `qty` | `float` | `1` | Quantity |
 | `type` | `string` | `'Servicio'` | `'Bien'` or `'Servicio'` |
 | `unit_of_measure` | `string` | `'UNI'` | SAT unit code |
