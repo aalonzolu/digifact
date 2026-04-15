@@ -81,9 +81,9 @@ try {
     $resultFuel = $client->fuelInvoice('CF', [
         // Only petroleo_code needed when petroleo_rates was set at client init.
         // petroleo_code: '1'=SUPER, '2'=REGULAR, '4'=DIESEL
-        ['description' => 'GASOLINA SUPER',   'qty' => 1, 'price' => 30.30, 'petroleo_code' => '1', 'type' => 'Bien'],
-        ['description' => 'GASOLINA REGULAR', 'qty' => 1, 'price' => 29.40, 'petroleo_code' => '2', 'type' => 'Bien'],
-        ['description' => 'GASOLINA DIESEL',  'qty' => 1, 'price' => 30.70, 'petroleo_code' => '4', 'type' => 'Bien'],
+        ['description' => 'GASOLINA SUPER',   'qty' => 1, 'price' => 35.00, 'petroleo_code' => '1', 'type' => 'Bien'],
+        ['description' => 'GASOLINA REGULAR', 'qty' => 1, 'price' => 34.00, 'petroleo_code' => '2', 'type' => 'Bien'],
+        ['description' => 'GASOLINA DIESEL',  'qty' => 1, 'price' => 32.00, 'petroleo_code' => '4', 'type' => 'Bien'],
         // Regular items (no petroleo_code): IVA only
         ['description' => 'FILTRO DE ACEITE',   'qty' => 1, 'price' => 45.00,  'type' => 'Bien'],
         ['description' => 'SET DE CANDELAS NGK', 'qty' => 1, 'price' => 400.00, 'type' => 'Bien'],

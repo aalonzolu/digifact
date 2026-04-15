@@ -967,7 +967,7 @@ def _build_fuel_items(
                     {
                         "Code":          petrol_code,
                         "Description":   "PETROLEO",
-                        "TaxableAmount": fc.f_petrol(),
+                        "TaxableAmount": fc.f_qty(),
                         "Amount":        fc.f_petrol(),
                     },
                 ]
@@ -1014,7 +1014,7 @@ def _build_fuel_adenda() -> dict:
                 "Code":  "00000013",
                 "Type":  "ADENDA",
                 "AditionalInfo": [
-                    {"Name": "VALIDAR_REFERENCIA_INTERNA", "Data": None, "Value": "VALIDAR"},
+                    {"Name": "VALIDAR_REFERENCIA_INTERNA", "Data": None, "Value": "NO_VALIDAR"},
                 ],
             }
         ]

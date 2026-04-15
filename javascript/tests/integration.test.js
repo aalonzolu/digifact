@@ -134,9 +134,9 @@ describe('Unit: builder', () => {
 
 describe('Unit: calcFuelLine', () => {
   test('fuel line math correct', () => {
-    const r = calcFuelLine(1, 30.30, 4.70);
+    const r = calcFuelLine(1, 35.00, 4.70);
     assert.equal(r.qty,       '1.000000');
-    assert.equal(r.price,     '30.300000');
+    assert.equal(r.price,     '35.000000');
     assert.equal(r.lineTotal, '35.000000');
     assert.equal(r.taxable,   '27.053571');
     assert.equal(r.iva,       '3.246429');
@@ -144,7 +144,7 @@ describe('Unit: calcFuelLine', () => {
   });
 
   test('taxable + iva equals gross', () => {
-    const r = calcFuelLine(2, 50, 3);
+    const r = calcFuelLine(2, 53, 3);
     const sum = (parseFloat(r.taxable) + parseFloat(r.iva)).toFixed(6);
     assert.equal(sum, '100.000000');
     assert.equal(r.lineTotal, '106.000000');
@@ -154,7 +154,7 @@ describe('Unit: calcFuelLine', () => {
 describe('Unit: buildFactCombustible', () => {
   test('has DocType FACT and adenda code 00000013', () => {
     const payload = buildFactCombustible('12345678', 'SELLER', 'ADDR', buyerCf(), [
-      { description: 'SUPER', qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
+      { description: 'SUPER', qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
     ]);
     assert.equal(payload.Header.DocType, 'FACT');
     assert.equal(payload.AdditionalDocumentInfo.AdditionalInfo[0].Code, '00000013');
@@ -162,7 +162,7 @@ describe('Unit: buildFactCombustible', () => {
 
   test('fuel item has IVA and PETROLEO taxes', () => {
     const payload = buildFactCombustible('12345678', 'SELLER', 'ADDR', buyerCf(), [
-      { description: 'SUPER', qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
+      { description: 'SUPER', qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
     ]);
     const taxes = payload.Items[0].Taxes.Tax;
     assert.equal(taxes.length, 2);
@@ -182,7 +182,7 @@ describe('Unit: buildFactCombustible', () => {
 
   test('PETROLEO total appears in TotalTaxes when present', () => {
     const payload = buildFactCombustible('12345678', 'SELLER', 'ADDR', buyerCf(), [
-      { description: 'SUPER', qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
+      { description: 'SUPER', qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
       { description: 'FILTRO', qty: 1, price: 45.00, type: 'Bien' },
     ]);
     const totals = payload.Totals.TotalTaxes.TotalTax;
@@ -459,8 +459,8 @@ if (SKIP) {
   describe('Integration: FACT Combustible', () => {
     test('emit FACT Combustible with mixed items', async () => {
       const result = await CLIENT.fuelInvoice('CF', [
-        { description: 'GASOLINA SUPER',    qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
-        { description: 'GASOLINA REGULAR',  qty: 1, price: 29.40, petroleo_amount: 4.60, petroleo_code: '2', type: 'Bien' },
+        { description: 'GASOLINA SUPER',    qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
+        { description: 'GASOLINA REGULAR',  qty: 1, price: 34.00, petroleo_amount: 4.60, petroleo_code: '2', type: 'Bien' },
         { description: 'FILTRO DE ACEITE',  qty: 1, price: 45.00, type: 'Bien' },
       ]);
       assert.ok(result.authNumber);

@@ -72,9 +72,9 @@ const stationClient = new DigifactClient({
 });
 // Only petroleo_code needed — petroleo_amount filled in automatically
 const fuel = await stationClient.fuelInvoice('CF', [
-  { description: 'GASOLINA SUPER',    qty: 30, price: 30.30, petroleo_code: '1', type: 'Bien' },
-  { description: 'GASOLINA REGULAR',  qty: 20, price: 29.40, petroleo_code: '2', type: 'Bien' },
-  { description: 'GASOLINA DIESEL',   qty: 50, price: 30.70, petroleo_code: '4', type: 'Bien' },
+  { description: 'GASOLINA SUPER',    qty: 30, price: 35.00, petroleo_code: '1', type: 'Bien' },
+  { description: 'GASOLINA REGULAR',  qty: 20, price: 34.00, petroleo_code: '2', type: 'Bien' },
+  { description: 'GASOLINA DIESEL',   qty: 50, price: 32.00, petroleo_code: '4', type: 'Bien' },
   // Regular items (no petroleo_code): IVA only, can coexist
   { description: 'FILTRO DE ACEITE',    qty: 1, price: 45.00, type: 'Bien' },
   { description: 'SET DE CANDELAS NGK', qty: 1, price: 400.00, type: 'Bien' },
@@ -83,7 +83,7 @@ console.log(fuel.authNumber);
 
 // Alternative: explicit petroleo_amount per item (no petroleo_rates needed)
 const fuel2 = await client.fuelInvoice('CF', [
-  { description: 'GASOLINA SUPER', qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
+  { description: 'GASOLINA SUPER', qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
 ]);
 ```
 
@@ -92,7 +92,7 @@ const fuel2 = await client.fuelInvoice('CF', [
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `description` | `string` | required | Line description |
-| `price` | `number` | required | Unit price, IVA-inclusive |
+| `price` | `number` | required | Full consumer price per unit (PETROLEO + IVA-inclusive) |
 | `qty` | `number` | `1` | Quantity |
 | `type` | `string` | `'Servicio'` | `'Bien'` or `'Servicio'` |
 | `unitOfMeasure` | `string` | `'UNI'` | SAT unit code |

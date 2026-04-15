@@ -84,9 +84,9 @@ public class UnitTests
     [Fact]
     public void CalcFuelLine_CorrectValues()
     {
-        var c = TaxHelper.CalcFuelLine(qty: 1m, price: 30.30m, petrolPerUnit: 4.70m);
+        var c = TaxHelper.CalcFuelLine(qty: 1m, price: 35.00m, petrolPerUnit: 4.70m);
         Assert.Equal("1.000000",  c.Qty);
-        Assert.Equal("30.300000", c.Price);
+        Assert.Equal("35.000000", c.Price);
         Assert.Equal("35.000000", c.LineTotal);
         Assert.Equal("27.053571", c.Taxable);
         Assert.Equal("3.246429",  c.Iva);
@@ -96,12 +96,12 @@ public class UnitTests
     [Fact]
     public void CalcFuelLine_TaxablePlusIvaEqualsGross()
     {
-        var c = TaxHelper.CalcFuelLine(qty: 2m, price: 50m, petrolPerUnit: 3m);
+        var c = TaxHelper.CalcFuelLine(qty: 2m, price: 53m, petrolPerUnit: 3m);
         decimal taxable = decimal.Parse(c.Taxable, CultureInfo.InvariantCulture);
         decimal iva     = decimal.Parse(c.Iva,     CultureInfo.InvariantCulture);
-        // taxable + iva must equal qty × price (= 100.00)
+        // taxable + iva must equal qty × net (= 100.00)
         Assert.Equal(100m, taxable + iva);
-        // lineTotal = gross + petroleo = 100.00 + 6.00
+        // lineTotal = qty × price = 2 × 53.00
         Assert.Equal("106.000000", c.LineTotal);
     }
 

@@ -96,9 +96,9 @@ class IntegrationTest extends TestCase
 
     public function testCalcFuelLine(): void
     {
-        $r = TaxHelper::calcFuelLine('1', '30.30', '4.70');
+        $r = TaxHelper::calcFuelLine('1', '35.00', '4.70');
         $this->assertSame('1.000000',  $r['qty']);
-        $this->assertSame('30.300000', $r['price']);
+        $this->assertSame('35.000000', $r['price']);
         $this->assertSame('35.000000', $r['lineTotal']);
         $this->assertSame('27.053571', $r['taxable']);
         $this->assertSame('3.246429',  $r['iva']);
@@ -107,11 +107,11 @@ class IntegrationTest extends TestCase
 
     public function testCalcFuelLineTaxablePlusIvaEqualsGross(): void
     {
-        $r   = TaxHelper::calcFuelLine('2', '50.00', '3.00');
+        $r   = TaxHelper::calcFuelLine('2', '53.00', '3.00');
         $sum = bcadd($r['taxable'], $r['iva'], 6);
-        // taxable + iva must equal qty × price (= 100.00)
+        // taxable + iva must equal qty × net (= 100.00)
         $this->assertSame('100.000000', $sum);
-        // lineTotal = gross + petroleo = 100.00 + 6.00
+        // lineTotal = qty × price = 2 × 53.00
         $this->assertSame('106.000000', $r['lineTotal']);
     }
 

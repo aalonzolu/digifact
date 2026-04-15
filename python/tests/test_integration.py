@@ -81,9 +81,9 @@ class TestTaxCalcUnit(unittest.TestCase):
 class TestFuelLineCalcUnit(unittest.TestCase):
     def test_fuel_line_math(self):
         from digifact_sdk.tax import FuelLineCalc
-        fc = FuelLineCalc(Decimal("1"), Decimal("30.30"), Decimal("4.70"))
+        fc = FuelLineCalc(Decimal("1"), Decimal("35.00"), Decimal("4.70"))
         self.assertEqual(fc.f_qty(),        "1.000000")
-        self.assertEqual(fc.f_price(),      "30.300000")
+        self.assertEqual(fc.f_price(),      "35.000000")
         self.assertEqual(fc.f_line_total(), "35.000000")
         self.assertEqual(fc.f_taxable(),    "27.053571")
         self.assertEqual(fc.f_iva(),        "3.246429")
@@ -91,11 +91,11 @@ class TestFuelLineCalcUnit(unittest.TestCase):
 
     def test_taxable_plus_iva_equals_gross(self):
         from digifact_sdk.tax import FuelLineCalc
-        fc = FuelLineCalc(Decimal("2"), Decimal("50.0"), Decimal("3.0"))
+        fc = FuelLineCalc(Decimal("2"), Decimal("53.0"), Decimal("3.0"))
         total = Decimal(fc.f_taxable()) + Decimal(fc.f_iva())
-        # taxable + iva must equal qty × price (= 100.00)
+        # taxable + iva must equal qty × net (= 100.00)
         self.assertEqual(total, Decimal("100.000000"))
-        # lineTotal = gross + petroleo = 100.00 + 6.00
+        # lineTotal = qty × price = 2 × 53.00
         self.assertEqual(fc.f_line_total(), "106.000000")
 
 
@@ -248,7 +248,7 @@ class TestBuilderUnit(unittest.TestCase):
             "12345678", "TEST", "CALLE",
             buyer=buyer,
             items=[
-                {"description": "SUPER",  "qty": 1, "price": 30.30,
+                {"description": "SUPER",  "qty": 1, "price": 35.00,
                  "petroleo_amount": 4.70, "petroleo_code": "1", "type": "Bien"},
                 {"description": "FILTRO", "qty": 1, "price": 45.00, "type": "Bien"},
             ],
@@ -533,9 +533,9 @@ class TestFuelInvoice(unittest.TestCase):
         result = _client().fuel_invoice(
             "CF",
             [
-                {"description": "GASOLINA SUPER",   "qty": 1, "price": 30.30,
+                {"description": "GASOLINA SUPER",   "qty": 1, "price": 35.00,
                  "petroleo_amount": 4.70, "petroleo_code": "1", "type": "Bien"},
-                {"description": "GASOLINA REGULAR",  "qty": 1, "price": 29.40,
+                {"description": "GASOLINA REGULAR",  "qty": 1, "price": 34.00,
                  "petroleo_amount": 4.60, "petroleo_code": "2", "type": "Bien"},
                 {"description": "FILTRO DE ACEITE",  "qty": 1, "price": 45.00, "type": "Bien"},
             ],

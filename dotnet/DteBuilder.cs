@@ -676,7 +676,7 @@ internal static class DteBuilder
                         {
                             ["Code"]          = string.IsNullOrEmpty(item.PetroleoCode) ? "1" : item.PetroleoCode,
                             ["Description"]   = "PETROLEO",
-                            ["TaxableAmount"] = calc.Petrol,
+                            ["TaxableAmount"] = calc.Qty,
                             ["Amount"]        = calc.Petrol,
                         },
                     },
@@ -731,7 +731,7 @@ internal static class DteBuilder
                     {
                         ["Name"]  = "VALIDAR_REFERENCIA_INTERNA",
                         ["Data"]  = (JsonNode?)null,
-                        ["Value"] = "VALIDAR",
+                        ["Value"] = "NO_VALIDAR",
                     },
                 },
             },

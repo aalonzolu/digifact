@@ -739,7 +739,7 @@ class DteBuilder
                         [
                             'Code'          => $petrolCode,
                             'Description'   => 'PETROLEO',
-                            'TaxableAmount' => $calc['petrol'],
+                            'TaxableAmount' => $calc['qty'],
                             'Amount'        => $calc['petrol'],
                         ],
                     ],
@@ -786,7 +786,7 @@ class DteBuilder
                 'Code'          => '00000013',
                 'Type'          => 'ADENDA',
                 'AditionalInfo' => [
-                    ['Name' => 'VALIDAR_REFERENCIA_INTERNA', 'Data' => null, 'Value' => 'VALIDAR'],
+                    ['Name' => 'VALIDAR_REFERENCIA_INTERNA', 'Data' => null, 'Value' => 'NO_VALIDAR'],
                 ],
             ]],
         ];

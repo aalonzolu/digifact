@@ -137,8 +137,9 @@ class FuelLineCalc:
     """Holds all calculated values for a fuel (combustible) invoice line item.
 
     The PETROLEO tax is a fixed pass-through amount supplied by the caller.
-    IVA is calculated only on the IVA-inclusive unit price (not on PETROLEO).
-    TotalItem = (qty × unit_price) + (qty × petrol_amount_per_unit).
+    ``unit_price`` is the full consumer price per unit (PETROLEO + IVA-inclusive).
+    IVA is calculated on qty × (unit_price − petrol_amount_per_unit).
+    TotalItem = qty × unit_price.
     """
 
     def __init__(
@@ -149,11 +150,12 @@ class FuelLineCalc:
     ) -> None:
         self.qty = qty
         self.unit_price = unit_price
-        self.gross = (qty * unit_price).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        net_per_unit = unit_price - petrol_amount_per_unit
+        self.gross = (qty * net_per_unit).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
         self.petrol_total = (qty * petrol_amount_per_unit).quantize(
             Decimal("0.000001"), rounding=ROUND_HALF_UP
         )
-        self.line_total = (self.gross + self.petrol_total).quantize(
+        self.line_total = (qty * unit_price).quantize(
             Decimal("0.000001"), rounding=ROUND_HALF_UP
         )
         self.taxable_amount, self.iva_amount = calc_iva(self.gross)

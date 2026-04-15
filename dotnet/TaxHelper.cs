@@ -83,14 +83,16 @@ internal static class TaxHelper
     /// <summary>
     /// Build all line calculations for a fuel (combustible) item.
     /// The PETROLEO tax is a fixed pass-through amount supplied by the caller.
-    /// IVA is calculated only on the IVA-inclusive unit price (not on PETROLEO).
-    /// TotalItem = (qty × price) + (qty × petrolPerUnit).
+    /// <c>price</c> is the full consumer price per unit (PETROLEO + IVA-inclusive).
+    /// IVA is calculated on qty × (price − petrolPerUnit).
+    /// TotalItem = qty × price.
     /// </summary>
     internal static FuelLineCalc CalcFuelLine(decimal qty, decimal price, decimal petrolPerUnit)
     {
-        decimal gross       = qty * price;
+        decimal netPerUnit  = price - petrolPerUnit;
+        decimal gross       = qty * netPerUnit;
         decimal petrolTotal = qty * petrolPerUnit;
-        decimal lineTotal   = gross + petrolTotal;
+        decimal lineTotal   = qty * price;
 
         (string taxableStr, string ivaStr) = CalcIva(gross);
 

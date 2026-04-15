@@ -97,9 +97,9 @@ var fuel = await stationClient.FuelInvoiceAsync(
     new BuyerDetails("CF"),
     new[]
     {
-        new FuelLineItem { Description = "GASOLINA SUPER",    Qty = 30m, Price = 30.30m, PetroleoCode = "1" },
-        new FuelLineItem { Description = "GASOLINA REGULAR",  Qty = 20m, Price = 29.40m, PetroleoCode = "2" },
-        new FuelLineItem { Description = "GASOLINA DIESEL",   Qty = 50m, Price = 30.70m, PetroleoCode = "4" },
+        new FuelLineItem { Description = "GASOLINA SUPER",    Qty = 30m, Price = 35.00m, PetroleoCode = "1" },
+        new FuelLineItem { Description = "GASOLINA REGULAR",  Qty = 20m, Price = 34.00m, PetroleoCode = "2" },
+        new FuelLineItem { Description = "GASOLINA DIESEL",   Qty = 50m, Price = 32.00m, PetroleoCode = "4" },
         // Regular items: PetroleoAmount = 0 (IVA only)
         new FuelLineItem { Description = "FILTRO DE ACEITE",    Qty = 1m, Price = 45.00m },
         new FuelLineItem { Description = "SET DE CANDELAS NGK", Qty = 1m, Price = 400.00m },
@@ -109,7 +109,7 @@ Console.WriteLine(fuel.AuthNumber);
 // Alternative: explicit PetroleoAmount per item (no PetroleoRates needed)
 var fuel2 = await client.FuelInvoiceAsync(
     new BuyerDetails("CF"),
-    new[] { new FuelLineItem { Description = "GASOLINA SUPER", Qty = 1m, Price = 30.30m, PetroleoAmount = 4.70m, PetroleoCode = "1" } });
+    new[] { new FuelLineItem { Description = "GASOLINA SUPER", Qty = 1m, Price = 35.00m, PetroleoAmount = 4.70m, PetroleoCode = "1" } });
 ```
 
 ## FuelLineItem properties
@@ -117,7 +117,7 @@ var fuel2 = await client.FuelInvoiceAsync(
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `Description` | `string` | required | Line description |
-| `Price` | `decimal` | required | Unit price, IVA-inclusive |
+| `Price` | `decimal` | required | Full consumer price per unit (PETROLEO + IVA-inclusive) |
 | `Qty` | `decimal` | `1` | Quantity |
 | `Type` | `string` | `"Bien"` | `"Bien"` or `"Servicio"` |
 | `UnitOfMeasure` | `string` | `"UNI"` | SAT unit code |

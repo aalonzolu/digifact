@@ -520,7 +520,7 @@ function buildFuelItems(items) {
       built.Taxes = {
         Tax: [
           { Code: '1',        Description: 'IVA',      TaxableAmount: calc.taxable, Amount: calc.iva },
-          { Code: petrolCode, Description: 'PETROLEO', TaxableAmount: calc.petrol,  Amount: calc.petrol },
+          { Code: petrolCode, Description: 'PETROLEO', TaxableAmount: calc.qty,     Amount: calc.petrol },
         ],
       };
       built.Totals = { TotalItem: calc.lineTotal };
@@ -559,7 +559,7 @@ function buildFuelAdenda() {
       Code: '00000013',
       Type: 'ADENDA',
       AditionalInfo: [
-        { Name: 'VALIDAR_REFERENCIA_INTERNA', Data: null, Value: 'VALIDAR' },
+        { Name: 'VALIDAR_REFERENCIA_INTERNA', Data: null, Value: 'NO_VALIDAR' },
       ],
     }],
   };

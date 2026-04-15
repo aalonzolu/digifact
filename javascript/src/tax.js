@@ -139,11 +139,12 @@ export function calcLine(qty, unitPrice, taxable = true, discount = 0) {
  * Build all calculated values for a fuel (combustible) invoice line item.
  *
  * The PETROLEO tax is a fixed pass-through amount supplied by the caller.
- * IVA is calculated only on the IVA-inclusive unit price (not on PETROLEO).
- * TotalItem = (qty × unitPrice) + (qty × petroleo).
+ * ``unitPrice`` is the full consumer price per unit (PETROLEO + IVA-inclusive).
+ * IVA is calculated on qty × (unitPrice − petroleo).
+ * TotalItem = qty × unitPrice.
  *
  * @param {string|number} qty
- * @param {string|number} unitPrice   IVA-inclusive price (excluding PETROLEO)
+ * @param {string|number} unitPrice   Full consumer price per unit (PETROLEO + IVA-inclusive)
  * @param {string|number} petroleo    Per-unit PETROLEO tax amount
  * @returns {{qty:string, price:string, lineTotal:string, taxable:string, iva:string, petrol:string}}
  */
@@ -152,9 +153,10 @@ export function calcFuelLine(qty, unitPrice, petroleo) {
   const priceS    = toScaled(unitPrice);
   const petrolS   = toScaled(petroleo);
 
-  const grossScaled     = (qtyS * priceS) / SCALE_FACTOR;
+  const netS            = priceS - petrolS;
+  const grossScaled     = (qtyS * netS)   / SCALE_FACTOR;
   const petrolScaled    = (qtyS * petrolS) / SCALE_FACTOR;
-  const lineTotalScaled = grossScaled + petrolScaled;
+  const lineTotalScaled = (qtyS * priceS)  / SCALE_FACTOR;
 
   const grossStr = fromScaled(grossScaled);
   const [taxableAmt, ivaAmt] = calcIva(grossStr);

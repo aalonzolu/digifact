@@ -96,9 +96,9 @@ try
         {
             // Only PetroleoCode needed when PetroleoRates was set in DigifactOptions.
             // PetroleoCode: "1"=SUPER, "2"=REGULAR, "4"=DIESEL
-            new FuelLineItem { Description = "GASOLINA SUPER",    Qty = 1m, Price = 30.30m, PetroleoCode = "1" },
-            new FuelLineItem { Description = "GASOLINA REGULAR",  Qty = 1m, Price = 29.40m, PetroleoCode = "2" },
-            new FuelLineItem { Description = "GASOLINA DIESEL",   Qty = 1m, Price = 30.70m, PetroleoCode = "4" },
+            new FuelLineItem { Description = "GASOLINA SUPER",    Qty = 1m, Price = 35.00m, PetroleoCode = "1" },
+            new FuelLineItem { Description = "GASOLINA REGULAR",  Qty = 1m, Price = 34.00m, PetroleoCode = "2" },
+            new FuelLineItem { Description = "GASOLINA DIESEL",   Qty = 1m, Price = 32.00m, PetroleoCode = "4" },
             // Regular items: PetroleoAmount = 0 (IVA only)
             new FuelLineItem { Description = "FILTRO DE ACEITE",    Qty = 1m, Price = 45.00m },
             new FuelLineItem { Description = "SET DE CANDELAS NGK", Qty = 1m, Price = 400.00m },
