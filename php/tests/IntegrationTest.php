@@ -5,6 +5,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 use Digifact\Fel\DigifactClient;
 use Digifact\Fel\DigifactException;
+use Digifact\Fel\DteBuilder;
 use Digifact\Fel\DteResult;
 use Digifact\Fel\TaxHelper;
 
