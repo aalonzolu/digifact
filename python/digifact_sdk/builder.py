@@ -10,7 +10,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from .tax import LineCalc, InvoiceTotals, fmt, gt_now
+from .tax import LineCalc, FuelLineCalc, InvoiceTotals, fmt, gt_now
 
 # ── No-IVA document types ─────────────────────────────────────────────────────
 NO_IVA_TYPES = {"FPEQ", "NABN", "RDON", "RECI"}
@@ -909,3 +909,175 @@ def build_cca(
         },
     }
     return payload
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# Combustible (fuel) builder
+# ───────────────────────────────────────────────────────────────────────────────
+
+
+def _build_fuel_items(
+    items: list[dict],
+) -> tuple[list[dict], str, str, str]:
+    """Build Items list for a combustible (fuel) invoice.
+
+    Items with 'petroleo_amount' are treated as fuel items and receive two
+    Tax entries (IVA + PETROLEO). Items without 'petroleo_amount' are treated
+    as regular IVA-only items. Both types may coexist in the same invoice.
+
+    Returns (line_items, grand_total_str, total_iva_str, total_petroleo_str).
+    """
+    line_items: list[dict] = []
+    grand_total    = Decimal("0")
+    total_iva      = Decimal("0")
+    total_petroleo = Decimal("0")
+
+    for i, item in enumerate(items, start=1):
+        qty   = Decimal(str(item.get("qty", 1)))
+        price = Decimal(str(item["price"]))
+        item_type = item.get("type", "Bien")
+        uom       = item.get("unit_of_measure", "UNI")
+        desc      = item["description"]
+
+        built: dict[str, Any] = {
+            "Number":        str(i),
+            "Codes":         None,
+            "Type":          item_type,
+            "Description":   desc,
+            "UnitOfMeasure": uom,
+            "Discounts":     None,
+        }
+
+        if "petroleo_amount" in item:
+            petrol_per_unit = Decimal(str(item["petroleo_amount"]))
+            petrol_code     = str(item.get("petroleo_code", "1"))
+
+            fc = FuelLineCalc(qty, price, petrol_per_unit)
+
+            built["Qty"]   = fc.f_qty()
+            built["Price"] = fc.f_price()
+            built["Taxes"] = {
+                "Tax": [
+                    {
+                        "Code":          "1",
+                        "Description":   "IVA",
+                        "TaxableAmount": fc.f_taxable(),
+                        "Amount":        fc.f_iva(),
+                    },
+                    {
+                        "Code":          petrol_code,
+                        "Description":   "PETROLEO",
+                        "TaxableAmount": fc.f_petrol(),
+                        "Amount":        fc.f_petrol(),
+                    },
+                ]
+            }
+            built["Totals"] = {"TotalItem": fc.f_line_total()}
+
+            grand_total    += fc.line_total
+            total_iva      += fc.iva_amount
+            total_petroleo += fc.petrol_total
+        else:
+            lc = LineCalc(qty, price, taxable=True)
+
+            built["Qty"]   = lc.f_qty()
+            built["Price"] = lc.f_price()
+            built["Taxes"] = {
+                "Tax": [
+                    {
+                        "Code":          "1",
+                        "Description":   "IVA",
+                        "TaxableAmount": lc.f_taxable(),
+                        "Amount":        lc.f_iva(),
+                    }
+                ]
+            }
+            built["Totals"] = {"TotalItem": lc.f_line_total()}
+
+            grand_total += lc.line_total
+            total_iva   += lc.iva_amount
+
+        line_items.append(built)
+
+    return (
+        line_items,
+        fmt(grand_total),
+        fmt(total_iva),
+        fmt(total_petroleo),
+    )
+
+
+def _build_fuel_adenda() -> dict:
+    return {
+        "AdditionalInfo": [
+            {
+                "Code":  "00000013",
+                "Type":  "ADENDA",
+                "AditionalInfo": [
+                    {"Name": "VALIDAR_REFERENCIA_INTERNA", "Data": None, "Value": "VALIDAR"},
+                ],
+            }
+        ]
+    }
+
+
+def build_fact_combustible(
+    taxid: str,
+    seller_name: str,
+    seller_address: str,
+    buyer: dict,
+    items: list[dict],
+    *,
+    afiliacion: str = "GEN",
+    tipo_frase: str = "1",
+    escenario: str = "1",
+    seller_email: str | None = None,
+) -> dict:
+    """Build a FACT payload for combustible (fuel) invoices.
+
+    Fuel items must include ``petroleo_amount`` (per-unit PETROLEO tax amount)
+    and optionally ``petroleo_code`` (SAT code: "1"=SUPER, "2"=REGULAR,
+    "4"=DIESEL; default "1"). Items without ``petroleo_amount`` are treated as
+    regular IVA-only items and may coexist in the same invoice.
+
+    Example fuel item::
+
+        {"description": "GASOLINA SUPER", "qty": 1, "price": 30.30,
+         "petroleo_amount": 4.70, "petroleo_code": "1", "type": "Bien"}
+
+    Example regular item in the same invoice::
+
+        {"description": "FILTRO DE ACEITE", "qty": 1, "price": 45.00, "type": "Bien"}
+    """
+    issue_dt, _, _ = gt_now()
+
+    line_items, grand_total, total_iva, total_petroleo = _build_fuel_items(items)
+
+    seller = _build_seller(
+        taxid,
+        seller_name,
+        seller_address,
+        afiliacion=afiliacion,
+        tipo_frase=tipo_frase,
+        escenario=escenario,
+        email=seller_email,
+    )
+
+    total_tax: list[dict] = [{"Description": "IVA", "Amount": total_iva}]
+    if float(total_petroleo) > 0.0:
+        total_tax.append({"Description": "PETROLEO", "Amount": total_petroleo})
+
+    return {
+        "Version": "1.00",
+        "CountryCode": "GT",
+        "Header": {"DocType": "FACT", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
+        "Seller": seller,
+        "Buyer": buyer,
+        "ThirdParties": None,
+        "Items": line_items,
+        "Totals": {
+            "TotalTaxes": {"TotalTax": total_tax},
+            "GrandTotal": {"InvoiceTotal": grand_total},
+        },
+        "AdditionalDocumentInfo": _build_fuel_adenda(),
+    }

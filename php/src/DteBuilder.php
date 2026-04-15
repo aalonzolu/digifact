@@ -684,4 +684,167 @@ class DteBuilder
             ],
         ];
     }
+
+    // ── Combustible (fuel) builders ───────────────────────────────────────────
+
+    /**
+     * Build Items array for a combustible (fuel) invoice.
+     *
+     * Items with a 'petroleo_amount' key are treated as fuel items and receive two
+     * Tax entries (IVA + PETROLEO). Items without 'petroleo_amount' are treated as
+     * regular IVA-only items. Both types may coexist in the same invoice.
+     *
+     * @param list<array> $items
+     * @return array{list<array>, string $grandTotal, string $totalIva, string $totalPetroleo}
+     */
+    private static function buildFuelItems(array $items): array
+    {
+        $builtItems    = [];
+        $grandTotal    = '0';
+        $totalIva      = '0';
+        $totalPetroleo = '0';
+
+        foreach ($items as $i => $item) {
+            $qty      = (string)($item['qty'] ?? 1);
+            $price    = (string)$item['price'];
+            $itemType = $item['type'] ?? 'Bien';
+            $uom      = $item['unit_of_measure'] ?? 'UNI';
+            $desc     = $item['description'];
+
+            $built = [
+                'Number'        => (string)($i + 1),
+                'Codes'         => null,
+                'Type'          => $itemType,
+                'Description'   => $desc,
+                'UnitOfMeasure' => $uom,
+                'Discounts'     => null,
+            ];
+
+            if (isset($item['petroleo_amount'])) {
+                $petrolPerUnit = (string)$item['petroleo_amount'];
+                $petrolCode    = (string)($item['petroleo_code'] ?? '1');
+
+                $calc = TaxHelper::calcFuelLine($qty, $price, $petrolPerUnit);
+
+                $built['Qty']   = $calc['qty'];
+                $built['Price'] = $calc['price'];
+                $built['Taxes'] = [
+                    'Tax' => [
+                        [
+                            'Code'          => '1',
+                            'Description'   => 'IVA',
+                            'TaxableAmount' => $calc['taxable'],
+                            'Amount'        => $calc['iva'],
+                        ],
+                        [
+                            'Code'          => $petrolCode,
+                            'Description'   => 'PETROLEO',
+                            'TaxableAmount' => $calc['petrol'],
+                            'Amount'        => $calc['petrol'],
+                        ],
+                    ],
+                ];
+                $built['Totals'] = ['TotalItem' => $calc['lineTotal']];
+
+                $grandTotal    = bcadd($grandTotal, $calc['lineTotal'], 10);
+                $totalIva      = bcadd($totalIva, $calc['iva'], 10);
+                $totalPetroleo = bcadd($totalPetroleo, $calc['petrol'], 10);
+            } else {
+                $calc = TaxHelper::calcLine($qty, $price, true);
+
+                $built['Qty']   = $calc['qty'];
+                $built['Price'] = $calc['price'];
+                $built['Taxes'] = [
+                    'Tax' => [[
+                        'Code'          => '1',
+                        'Description'   => 'IVA',
+                        'TaxableAmount' => $calc['taxable'],
+                        'Amount'        => $calc['iva'],
+                    ]],
+                ];
+                $built['Totals'] = ['TotalItem' => $calc['lineTotal']];
+
+                $grandTotal = bcadd($grandTotal, $calc['lineTotal'], 10);
+                $totalIva   = bcadd($totalIva, $calc['iva'], 10);
+            }
+
+            $builtItems[] = $built;
+        }
+
+        return [
+            $builtItems,
+            TaxHelper::fmt($grandTotal),
+            TaxHelper::fmt($totalIva),
+            TaxHelper::fmt($totalPetroleo),
+        ];
+    }
+
+    private static function buildFuelAdenda(): array
+    {
+        return [
+            'AdditionalInfo' => [[
+                'Code'          => '00000013',
+                'Type'          => 'ADENDA',
+                'AditionalInfo' => [
+                    ['Name' => 'VALIDAR_REFERENCIA_INTERNA', 'Data' => null, 'Value' => 'VALIDAR'],
+                ],
+            ]],
+        ];
+    }
+
+    /**
+     * Build a FACT payload for combustible (fuel) invoices.
+     *
+     * Fuel items must include 'petroleo_amount' (per-unit PETROLEO tax amount) and
+     * optionally 'petroleo_code' (SAT code: "1"=SUPER, "2"=REGULAR, "4"=DIESEL; default "1").
+     * Items without 'petroleo_amount' are treated as regular IVA-only items.
+     *
+     * Example fuel item:
+     *   ['description' => 'GASOLINA SUPER', 'qty' => 1, 'price' => 30.30,
+     *    'petroleo_amount' => 4.70, 'petroleo_code' => '1', 'type' => 'Bien']
+     *
+     * Example regular item in the same invoice:
+     *   ['description' => 'FILTRO DE ACEITE', 'qty' => 1, 'price' => 45.00, 'type' => 'Bien']
+     */
+    public static function buildFactCombustible(
+        string $taxid,
+        string $sellerName,
+        string $sellerAddress,
+        array $buyer,
+        array $items,
+        string $afiliacion = 'GEN',
+        string $tipoFrase = '1',
+        string $escenario = '1',
+        ?string $sellerEmail = null
+    ): array {
+        [$isoNow] = TaxHelper::gtNow();
+
+        [$lineItems, $grandTotal, $totalIva, $totalPetroleo] = self::buildFuelItems($items);
+
+        $seller = self::buildSeller(
+            $taxid, $sellerName, $sellerAddress,
+            $afiliacion, $tipoFrase, $escenario,
+            email: $sellerEmail
+        );
+
+        $totalTax = [['Description' => 'IVA', 'Amount' => $totalIva]];
+        if ((float)$totalPetroleo > 0.0) {
+            $totalTax[] = ['Description' => 'PETROLEO', 'Amount' => $totalPetroleo];
+        }
+
+        return [
+            'Version'     => '1.00',
+            'CountryCode' => 'GT',
+            'Header'      => ['DocType' => 'FACT', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
+            'Seller'      => $seller,
+            'Buyer'       => $buyer,
+            'ThirdParties' => null,
+            'Items'       => $lineItems,
+            'Totals'      => [
+                'TotalTaxes' => ['TotalTax' => $totalTax],
+                'GrandTotal' => ['InvoiceTotal' => $grandTotal],
+            ],
+            'AdditionalDocumentInfo' => self::buildFuelAdenda(),
+        ];
+    }
 }

@@ -632,4 +632,157 @@ internal static class DteBuilder
             },
         };
     }
+
+    // ── Combustible (fuel) builder ────────────────────────────────────────────
+
+    private static (JsonArray Items, string GrandTotal, string TotalIva, string TotalPetroleo)
+        BuildFuelItems(IReadOnlyList<FuelLineItem> items)
+    {
+        var arr = new JsonArray();
+        decimal grandTotal    = 0m;
+        decimal totalIva      = 0m;
+        decimal totalPetroleo = 0m;
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            var built = new JsonObject
+            {
+                ["Number"]        = (i + 1).ToString(),
+                ["Codes"]         = (JsonNode?)null,
+                ["Type"]          = item.Type,
+                ["Description"]   = item.Description,
+                ["UnitOfMeasure"] = item.UnitOfMeasure,
+                ["Discounts"]     = (JsonNode?)null,
+            };
+
+            if (item.PetroleoAmount > 0m)
+            {
+                var calc = TaxHelper.CalcFuelLine(item.Qty, item.Price, item.PetroleoAmount);
+                built["Qty"]   = calc.Qty;
+                built["Price"] = calc.Price;
+                built["Taxes"] = new JsonObject
+                {
+                    ["Tax"] = new JsonArray
+                    {
+                        new JsonObject
+                        {
+                            ["Code"]          = "1",
+                            ["Description"]   = "IVA",
+                            ["TaxableAmount"] = calc.Taxable,
+                            ["Amount"]        = calc.Iva,
+                        },
+                        new JsonObject
+                        {
+                            ["Code"]          = string.IsNullOrEmpty(item.PetroleoCode) ? "1" : item.PetroleoCode,
+                            ["Description"]   = "PETROLEO",
+                            ["TaxableAmount"] = calc.Petrol,
+                            ["Amount"]        = calc.Petrol,
+                        },
+                    },
+                };
+                built["Totals"] = new JsonObject { ["TotalItem"] = calc.LineTotal };
+
+                grandTotal    += decimal.Parse(calc.LineTotal, CultureInfo.InvariantCulture);
+                totalIva      += decimal.Parse(calc.Iva, CultureInfo.InvariantCulture);
+                totalPetroleo += decimal.Parse(calc.Petrol, CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                var calc = TaxHelper.CalcLine(item.Qty, item.Price, true, 0m);
+                built["Qty"]   = calc.Qty;
+                built["Price"] = calc.Price;
+                built["Taxes"] = new JsonObject
+                {
+                    ["Tax"] = new JsonArray
+                    {
+                        new JsonObject
+                        {
+                            ["Code"]          = "1",
+                            ["Description"]   = "IVA",
+                            ["TaxableAmount"] = calc.Taxable,
+                            ["Amount"]        = calc.Iva,
+                        },
+                    },
+                };
+                built["Totals"] = new JsonObject { ["TotalItem"] = calc.LineTotal };
+
+                grandTotal += decimal.Parse(calc.LineTotal, CultureInfo.InvariantCulture);
+                totalIva   += decimal.Parse(calc.Iva, CultureInfo.InvariantCulture);
+            }
+
+            arr.Add(built);
+        }
+
+        return (arr, TaxHelper.Fmt(grandTotal), TaxHelper.Fmt(totalIva), TaxHelper.Fmt(totalPetroleo));
+    }
+
+    private static JsonObject BuildFuelAdenda() => new()
+    {
+        ["AdditionalInfo"] = new JsonArray
+        {
+            new JsonObject
+            {
+                ["Code"] = "00000013",
+                ["Type"] = "ADENDA",
+                ["AditionalInfo"] = new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["Name"]  = "VALIDAR_REFERENCIA_INTERNA",
+                        ["Data"]  = (JsonNode?)null,
+                        ["Value"] = "VALIDAR",
+                    },
+                },
+            },
+        },
+    };
+
+    /// <summary>
+    /// Build a FACT payload for combustible (fuel) invoices.
+    ///
+    /// <para>
+    /// <see cref="FuelLineItem"/>s with <c>PetroleoAmount &gt; 0</c> are treated as fuel items
+    /// and receive two Tax entries (IVA + PETROLEO). Items with <c>PetroleoAmount == 0</c>
+    /// are treated as regular IVA-only items. Both types may coexist in the same invoice.
+    /// </para>
+    ///
+    /// <para>Common <c>PetroleoCode</c> values: "1" = SUPER, "2" = REGULAR, "4" = DIESEL.</para>
+    /// </summary>
+    internal static JsonObject BuildFactCombustible(
+        string taxid, string sellerName, string sellerAddress,
+        JsonObject buyer, IReadOnlyList<FuelLineItem> items,
+        string afiliacion = "GEN",
+        string tipoFrase = "1",
+        string escenario = "1",
+        string? sellerEmail = null)
+    {
+        var (isoNow, _, _) = TaxHelper.GtNow();
+        var (lineItems, grandTotal, totalIva, totalPetroleo) = BuildFuelItems(items);
+        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tipoFrase, escenario, email: sellerEmail);
+
+        var totalTaxArray = new JsonArray
+        {
+            new JsonObject { ["Description"] = "IVA", ["Amount"] = totalIva },
+        };
+        if (decimal.Parse(totalPetroleo, CultureInfo.InvariantCulture) > 0m)
+            totalTaxArray.Add(new JsonObject { ["Description"] = "PETROLEO", ["Amount"] = totalPetroleo });
+
+        return new JsonObject
+        {
+            ["Version"]     = "1.00",
+            ["CountryCode"] = "GT",
+            ["Header"]      = new JsonObject { ["DocType"] = "FACT", ["IssuedDateTime"] = isoNow, ["Currency"] = "GTQ" },
+            ["Seller"]      = seller,
+            ["Buyer"]       = buyer,
+            ["ThirdParties"] = (JsonNode?)null,
+            ["Items"]       = lineItems,
+            ["Totals"] = new JsonObject
+            {
+                ["TotalTaxes"] = new JsonObject { ["TotalTax"] = totalTaxArray },
+                ["GrandTotal"] = new JsonObject { ["InvoiceTotal"] = grandTotal },
+            },
+            ["AdditionalDocumentInfo"] = BuildFuelAdenda(),
+        };
+    }
 }

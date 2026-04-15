@@ -28,6 +28,13 @@ using var client = new DigifactClient(new DigifactOptions
     Username    = username,
     Password    = password,
     Environment = "test",
+    // PETROLEO rates (Q/gallon) — auto-filled in FuelInvoiceAsync when PetroleoCode is set
+    PetroleoRates = new Dictionary<string, decimal>
+    {
+        ["1"] = 4.70m,  // SUPER
+        ["2"] = 4.60m,  // REGULAR
+        ["4"] = 1.30m,  // DIESEL
+    },
 });
 
 // ── FACT CF ──────────────────────────────────────────────────────────────────
@@ -72,6 +79,33 @@ try
     var info = await client.LookupNitAsync("77454820");
     Console.WriteLine($"  name    : {info.Name}");
     Console.WriteLine($"  address : {info.Address}");
+}
+catch (DigifactException ex)
+{
+    Console.Error.WriteLine($"  ERROR: {ex.Message}");
+}
+
+// ── FACT Combustible ──────────────────────────────────────────────────────────
+// For gas stations, set PetroleoRates at init so you don't repeat PetroleoAmount on each item.
+Console.WriteLine("\nEmitting FACT Combustible...");
+try
+{
+    var resultFuel = await client.FuelInvoiceAsync(
+        new BuyerDetails("CF"),
+        new[]
+        {
+            // Only PetroleoCode needed when PetroleoRates was set in DigifactOptions.
+            // PetroleoCode: "1"=SUPER, "2"=REGULAR, "4"=DIESEL
+            new FuelLineItem { Description = "GASOLINA SUPER",    Qty = 1m, Price = 30.30m, PetroleoCode = "1" },
+            new FuelLineItem { Description = "GASOLINA REGULAR",  Qty = 1m, Price = 29.40m, PetroleoCode = "2" },
+            new FuelLineItem { Description = "GASOLINA DIESEL",   Qty = 1m, Price = 30.70m, PetroleoCode = "4" },
+            // Regular items: PetroleoAmount = 0 (IVA only)
+            new FuelLineItem { Description = "FILTRO DE ACEITE",    Qty = 1m, Price = 45.00m },
+            new FuelLineItem { Description = "SET DE CANDELAS NGK", Qty = 1m, Price = 400.00m },
+        });
+    Console.WriteLine($"  auth_number  : {resultFuel.AuthNumber}");
+    Console.WriteLine($"  series       : {resultFuel.Series}");
+    Console.WriteLine($"  number       : {resultFuel.Number}");
 }
 catch (DigifactException ex)
 {

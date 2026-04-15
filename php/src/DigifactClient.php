@@ -21,6 +21,8 @@ class DigifactClient
     private string $tipoPersoneria;
     private int $timeout;
     private array $nitCache = [];
+    /** @var array<string,float> PETROLEO code → per-unit amount */
+    private array $petroleoRates = [];
 
     private const BASE_URLS = [
         'test'       => 'https://testnucgt.digifact.com/api',
@@ -30,7 +32,7 @@ class DigifactClient
     /**
      * @param array $config Keys: taxid, username, password, environment, token,
      *                      seller_name, seller_address, afiliacion_iva,
-     *                      tipo_personeria, timeout
+     *                      tipo_personeria, timeout, petroleo_rates
      */
     public function __construct(array $config)
     {
@@ -45,6 +47,7 @@ class DigifactClient
         $this->afiliacionIva = $config['afiliacion_iva'] ?? 'GEN';
         $this->tipoPersoneria = $config['tipo_personeria'] ?? '1';
         $this->timeout = (int)($config['timeout'] ?? 120);
+        $this->petroleoRates = $config['petroleo_rates'] ?? [];
 
         if (!$this->taxid) {
             throw new \InvalidArgumentException("taxid must contain at least one digit");
@@ -421,6 +424,50 @@ class DigifactClient
         );
         $data = $this->certify($payload);
         return DteResult::fromArray($data);
+    }
+
+    /**
+     * Emit a combustible (fuel) FACT invoice.
+     *
+     * Fuel items must include 'petroleo_amount' (per-unit PETROLEO tax) and optionally
+     * 'petroleo_code' ("1"=SUPER, "2"=REGULAR, "4"=DIESEL; default "1").
+     * Items without 'petroleo_amount' are treated as regular IVA-only items.
+     *
+     * @param array $items Each fuel item: description, qty, price, petroleo_amount, petroleo_code, type, unit_of_measure
+     */
+    public function fuelInvoice(string|array $buyer, array $items): DteResult
+    {
+        [$sellerName, $sellerAddress] = $this->getSellerInfo();
+        $buyerArr = $this->resolveBuyer($buyer);
+        $resolved = $this->applyPetroleoRates($items);
+        $payload = DteBuilder::buildFactCombustible(
+            $this->taxid, $sellerName, $sellerAddress, $buyerArr, $resolved, $this->afiliacionIva
+        );
+        $data = $this->certify($payload);
+        return DteResult::fromArray($data);
+    }
+
+    /** @param array[] $items */
+    private function applyPetroleoRates(array $items): array
+    {
+        return array_map(function (array $item): array {
+            $code = $item['petroleo_code'] ?? null;
+            if ($code !== null && !isset($item['petroleo_amount'])) {
+                $rate = $this->petroleoRates[(string)$code] ?? null;
+                if ($rate === null) {
+                    throw new DigifactValidationException(
+                        sprintf(
+                            "Item '%s' has petroleo_code='%s' but no petroleo_amount "
+                                . 'and no matching rate in petroleo_rates.',
+                            $item['description'] ?? '',
+                            $code
+                        )
+                    );
+                }
+                $item['petroleo_amount'] = $rate;
+            }
+            return $item;
+        }, $items);
     }
 
     /**

@@ -29,10 +29,12 @@ if (!$taxid || !$username || !$password) {
 }
 
 $client = new DigifactClient([
-    'taxid'       => $taxid,
-    'username'    => $username,
-    'password'    => $password,
-    'environment' => 'test',
+    'taxid'           => $taxid,
+    'username'        => $username,
+    'password'        => $password,
+    'environment'     => 'test',
+    // PETROLEO rates (Q/gallon) — auto-filled in fuelInvoice when petroleo_code is set
+    'petroleo_rates'  => ['1' => 4.70, '2' => 4.60, '4' => 1.30], // SUPER / REGULAR / DIESEL
 ]);
 
 // ── FACT CF ──
@@ -68,6 +70,27 @@ try {
     $info = $client->lookupNit('77454820');
     echo "  name    : {$info['name']}\n";
     echo "  address : {$info['address']}\n";
+} catch (DigifactException $e) {
+    echo "  ERROR: {$e->getMessage()}\n";
+}
+
+// ── FACT Combustible ──
+// For gas stations, set petroleo_rates at init so you don't repeat petroleo_amount on each item.
+echo "\nEmitting FACT Combustible...\n";
+try {
+    $resultFuel = $client->fuelInvoice('CF', [
+        // Only petroleo_code needed when petroleo_rates was set at client init.
+        // petroleo_code: '1'=SUPER, '2'=REGULAR, '4'=DIESEL
+        ['description' => 'GASOLINA SUPER',   'qty' => 1, 'price' => 30.30, 'petroleo_code' => '1', 'type' => 'Bien'],
+        ['description' => 'GASOLINA REGULAR', 'qty' => 1, 'price' => 29.40, 'petroleo_code' => '2', 'type' => 'Bien'],
+        ['description' => 'GASOLINA DIESEL',  'qty' => 1, 'price' => 30.70, 'petroleo_code' => '4', 'type' => 'Bien'],
+        // Regular items (no petroleo_code): IVA only
+        ['description' => 'FILTRO DE ACEITE',   'qty' => 1, 'price' => 45.00,  'type' => 'Bien'],
+        ['description' => 'SET DE CANDELAS NGK', 'qty' => 1, 'price' => 400.00, 'type' => 'Bien'],
+    ]);
+    echo "  auth_number  : {$resultFuel->authNumber}\n";
+    echo "  series       : {$resultFuel->series}\n";
+    echo "  number       : {$resultFuel->number}\n";
 } catch (DigifactException $e) {
     echo "  ERROR: {$e->getMessage()}\n";
 }

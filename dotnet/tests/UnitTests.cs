@@ -79,7 +79,112 @@ public class UnitTests
         Assert.Equal("10.00", calc.Discount);
     }
 
-    // ── DteResult.FromJson ────────────────────────────────────────────────────
+    // ── TaxHelper.CalcFuelLine ────────────────────────────────────────────────
+
+    [Fact]
+    public void CalcFuelLine_CorrectValues()
+    {
+        var c = TaxHelper.CalcFuelLine(qty: 1m, price: 30.30m, petrolPerUnit: 4.70m);
+        Assert.Equal("1.000000",  c.Qty);
+        Assert.Equal("30.300000", c.Price);
+        Assert.Equal("35.000000", c.LineTotal);
+        Assert.Equal("27.053571", c.Taxable);
+        Assert.Equal("3.246429",  c.Iva);
+        Assert.Equal("4.700000",  c.Petrol);
+    }
+
+    [Fact]
+    public void CalcFuelLine_TaxablePlusIvaEqualsGross()
+    {
+        var c = TaxHelper.CalcFuelLine(qty: 2m, price: 50m, petrolPerUnit: 3m);
+        decimal taxable = decimal.Parse(c.Taxable, CultureInfo.InvariantCulture);
+        decimal iva     = decimal.Parse(c.Iva,     CultureInfo.InvariantCulture);
+        // taxable + iva must equal qty × price (= 100.00)
+        Assert.Equal(100m, taxable + iva);
+        // lineTotal = gross + petroleo = 100.00 + 6.00
+        Assert.Equal("106.000000", c.LineTotal);
+    }
+
+    // ── PetroleoRates auto-fill ───────────────────────────────────────────────
+
+    [Fact]
+    public void PetroleoRates_FillsAmountWhenCodeSetButAmountIsZero()
+    {
+        var opts = new DigifactOptions
+        {
+            Taxid = "12345678", Username = "U", Password = "P",
+            PetroleoRates = new Dictionary<string, decimal> { ["1"] = 4.70m, ["4"] = 1.30m },
+        };
+        using var client = new DigifactClient(opts, new HttpClient());
+        var items = new[]
+        {
+            new FuelLineItem { Description = "SUPER",  Price = 30.30m, PetroleoCode = "1" },
+            new FuelLineItem { Description = "DIESEL", Price = 30.70m, PetroleoCode = "4" },
+            new FuelLineItem { Description = "FILTRO", Price = 45.00m },  // no code, amount stays 0
+        };
+        // Access via reflection since ApplyPetroleoRates is private
+        var method = typeof(DigifactClient).GetMethod("ApplyPetroleoRates",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var resolved = (System.Collections.Generic.IReadOnlyList<FuelLineItem>)method.Invoke(client, new object[] { items })!;
+        Assert.Equal(4.70m, resolved[0].PetroleoAmount);
+        Assert.Equal(1.30m, resolved[1].PetroleoAmount);
+        Assert.Equal(0m,    resolved[2].PetroleoAmount);
+    }
+
+    [Fact]
+    public void PetroleoRates_ExplicitAmountNotOverwritten()
+    {
+        var opts = new DigifactOptions
+        {
+            Taxid = "12345678", Username = "U", Password = "P",
+            PetroleoRates = new Dictionary<string, decimal> { ["1"] = 4.70m },
+        };
+        using var client = new DigifactClient(opts, new HttpClient());
+        var items = new[]
+        {
+            new FuelLineItem { Description = "SUPER", Price = 30.30m, PetroleoCode = "1", PetroleoAmount = 9.99m },
+        };
+        var method = typeof(DigifactClient).GetMethod("ApplyPetroleoRates",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var resolved = (System.Collections.Generic.IReadOnlyList<FuelLineItem>)method.Invoke(client, new object[] { items })!;
+        Assert.Equal(9.99m, resolved[0].PetroleoAmount);
+    }
+
+    [Fact]
+    public void PetroleoRates_MissingRatesThrows()
+    {
+        var opts = new DigifactOptions
+        {
+            Taxid = "12345678", Username = "U", Password = "P",
+            // no PetroleoRates configured
+        };
+        using var client = new DigifactClient(opts, new HttpClient());
+        var items = new[] { new FuelLineItem { Description = "SUPER", Price = 30.30m, PetroleoCode = "1" } };
+        var method = typeof(DigifactClient).GetMethod("ApplyPetroleoRates",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var ex = Assert.Throws<System.Reflection.TargetInvocationException>(
+            () => method.Invoke(client, new object[] { items }));
+        Assert.IsType<DigifactValidationException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void PetroleoRates_CodeNotInRatesThrows()
+    {
+        var opts = new DigifactOptions
+        {
+            Taxid = "12345678", Username = "U", Password = "P",
+            PetroleoRates = new Dictionary<string, decimal> { ["1"] = 4.70m }, // DIESEL not configured
+        };
+        using var client = new DigifactClient(opts, new HttpClient());
+        var items = new[] { new FuelLineItem { Description = "DIESEL", Price = 30.70m, PetroleoCode = "4" } };
+        var method = typeof(DigifactClient).GetMethod("ApplyPetroleoRates",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var ex = Assert.Throws<System.Reflection.TargetInvocationException>(
+            () => method.Invoke(client, new object[] { items }));
+        Assert.IsType<DigifactValidationException>(ex.InnerException);
+    }
+
+
 
     [Fact]
     public void DteResult_ParsesCamelCaseResponse()

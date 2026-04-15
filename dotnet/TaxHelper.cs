@@ -79,6 +79,30 @@ internal static class TaxHelper
             Discount: Fmt(discount, 2)
         );
     }
+
+    /// <summary>
+    /// Build all line calculations for a fuel (combustible) item.
+    /// The PETROLEO tax is a fixed pass-through amount supplied by the caller.
+    /// IVA is calculated only on the IVA-inclusive unit price (not on PETROLEO).
+    /// TotalItem = (qty × price) + (qty × petrolPerUnit).
+    /// </summary>
+    internal static FuelLineCalc CalcFuelLine(decimal qty, decimal price, decimal petrolPerUnit)
+    {
+        decimal gross       = qty * price;
+        decimal petrolTotal = qty * petrolPerUnit;
+        decimal lineTotal   = gross + petrolTotal;
+
+        (string taxableStr, string ivaStr) = CalcIva(gross);
+
+        return new FuelLineCalc(
+            Qty:       Fmt(qty),
+            Price:     Fmt(price),
+            LineTotal: Fmt(lineTotal),
+            Taxable:   taxableStr,
+            Iva:       ivaStr,
+            Petrol:    Fmt(petrolTotal)
+        );
+    }
 }
 
 internal sealed record LineCalc(
@@ -88,4 +112,13 @@ internal sealed record LineCalc(
     string Taxable,
     string Iva,
     string Discount
+);
+
+internal sealed record FuelLineCalc(
+    string Qty,
+    string Price,
+    string LineTotal,
+    string Taxable,
+    string Iva,
+    string Petrol
 );

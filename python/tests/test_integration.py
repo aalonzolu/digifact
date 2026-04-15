@@ -78,6 +78,74 @@ class TestTaxCalcUnit(unittest.TestCase):
         self.assertEqual(pad_taxid("GT.000012345678"), "000012345678")
 
 
+class TestFuelLineCalcUnit(unittest.TestCase):
+    def test_fuel_line_math(self):
+        from digifact_sdk.tax import FuelLineCalc
+        fc = FuelLineCalc(Decimal("1"), Decimal("30.30"), Decimal("4.70"))
+        self.assertEqual(fc.f_qty(),        "1.000000")
+        self.assertEqual(fc.f_price(),      "30.300000")
+        self.assertEqual(fc.f_line_total(), "35.000000")
+        self.assertEqual(fc.f_taxable(),    "27.053571")
+        self.assertEqual(fc.f_iva(),        "3.246429")
+        self.assertEqual(fc.f_petrol(),     "4.700000")
+
+    def test_taxable_plus_iva_equals_gross(self):
+        from digifact_sdk.tax import FuelLineCalc
+        fc = FuelLineCalc(Decimal("2"), Decimal("50.0"), Decimal("3.0"))
+        total = Decimal(fc.f_taxable()) + Decimal(fc.f_iva())
+        # taxable + iva must equal qty × price (= 100.00)
+        self.assertEqual(total, Decimal("100.000000"))
+        # lineTotal = gross + petroleo = 100.00 + 6.00
+        self.assertEqual(fc.f_line_total(), "106.000000")
+
+
+class TestPetroleoRatesAutoFill(unittest.TestCase):
+    """Unit tests for DigifactClient._apply_petroleo_rates."""
+
+    def _make_client(self, rates=None):
+        from digifact_sdk.client import DigifactClient
+        return DigifactClient(
+            taxid="12345678",
+            username="U",
+            password="P",
+            petroleo_rates=rates,
+        )
+
+    def test_fills_amount_from_rates_when_code_set(self):
+        client = self._make_client({"1": 4.70, "4": 1.30})
+        resolved = client._apply_petroleo_rates([
+            {"description": "SUPER",  "price": 30.30, "petroleo_code": "1"},
+            {"description": "DIESEL", "price": 30.70, "petroleo_code": "4"},
+            {"description": "FILTRO", "price": 45.00},  # no code → untouched
+        ])
+        self.assertEqual(resolved[0]["petroleo_amount"], 4.70)
+        self.assertEqual(resolved[1]["petroleo_amount"], 1.30)
+        self.assertNotIn("petroleo_amount", resolved[2])
+
+    def test_explicit_amount_never_overwritten(self):
+        client = self._make_client({"1": 4.70})
+        resolved = client._apply_petroleo_rates([
+            {"description": "SUPER", "price": 30.30, "petroleo_code": "1", "petroleo_amount": 9.99},
+        ])
+        self.assertEqual(resolved[0]["petroleo_amount"], 9.99)
+
+    def test_missing_rate_raises_error(self):
+        from digifact_sdk.exceptions import DigifactValidationError
+        client = self._make_client()  # no rates
+        with self.assertRaises(DigifactValidationError):
+            client._apply_petroleo_rates([
+                {"description": "SUPER", "price": 30.30, "petroleo_code": "1"},
+            ])
+
+    def test_code_not_in_rates_raises_error(self):
+        from digifact_sdk.exceptions import DigifactValidationError
+        client = self._make_client({"1": 4.70})  # only SUPER configured
+        with self.assertRaises(DigifactValidationError):
+            client._apply_petroleo_rates([
+                {"description": "DIESEL", "price": 30.70, "petroleo_code": "4"},
+            ])
+
+
 class TestBuilderUnit(unittest.TestCase):
     def setUp(self):
         from digifact_sdk import builder
@@ -170,6 +238,37 @@ class TestBuilderUnit(unittest.TestCase):
         doc_info = payload["Header"].get("AdditionalIssueDocInfo", [])
         names = [d["Name"] for d in doc_info]
         self.assertIn("TipoPersoneria", names)
+
+    def test_build_fact_combustible_structure(self):
+        from digifact_sdk.builder import build_fact_combustible
+        buyer = {"TaxID": "CF", "Name": "CONSUMIDOR FINAL",
+                 "AddressInfo": {"Address": "CIUDAD", "City": "01010",
+                                 "District": "GUATEMALA", "State": "GUATEMALA", "Country": "GT"}}
+        payload = build_fact_combustible(
+            "12345678", "TEST", "CALLE",
+            buyer=buyer,
+            items=[
+                {"description": "SUPER",  "qty": 1, "price": 30.30,
+                 "petroleo_amount": 4.70, "petroleo_code": "1", "type": "Bien"},
+                {"description": "FILTRO", "qty": 1, "price": 45.00, "type": "Bien"},
+            ],
+        )
+        self.assertEqual(payload["Header"]["DocType"], "FACT")
+        # Fuel item: 2 taxes (IVA + PETROLEO)
+        fuel_taxes = payload["Items"][0]["Taxes"]["Tax"]
+        self.assertEqual(len(fuel_taxes), 2)
+        self.assertEqual(fuel_taxes[1]["Description"], "PETROLEO")
+        self.assertEqual(fuel_taxes[1]["Code"], "1")
+        # Regular item: 1 tax (IVA only)
+        reg_taxes = payload["Items"][1]["Taxes"]["Tax"]
+        self.assertEqual(len(reg_taxes), 1)
+        self.assertEqual(reg_taxes[0]["Description"], "IVA")
+        # Adenda code
+        adenda_code = payload["AdditionalDocumentInfo"]["AdditionalInfo"][0]["Code"]
+        self.assertEqual(adenda_code, "00000013")
+        # PETROLEO total appears in TotalTaxes
+        total_descs = [t["Description"] for t in payload["Totals"]["TotalTaxes"]["TotalTax"]]
+        self.assertIn("PETROLEO", total_descs)
 
 
 # ── Integration tests (shared client, 1 login total) ─────────────────────────
@@ -426,6 +525,23 @@ class TestGetDte(unittest.TestCase):
             self.skipTest(getattr(self, "_skip_reason", "FACT CF not available"))
         info = _client().get_dte_info(self._fact.auth_number)
         self.assertIsInstance(info, dict)
+
+
+@unittest.skipIf(SKIP, SKIP_REASON)
+class TestFuelInvoice(unittest.TestCase):
+    def test_fuel_invoice_cf_mixed_items(self):
+        result = _client().fuel_invoice(
+            "CF",
+            [
+                {"description": "GASOLINA SUPER",   "qty": 1, "price": 30.30,
+                 "petroleo_amount": 4.70, "petroleo_code": "1", "type": "Bien"},
+                {"description": "GASOLINA REGULAR",  "qty": 1, "price": 29.40,
+                 "petroleo_amount": 4.60, "petroleo_code": "2", "type": "Bien"},
+                {"description": "FILTRO DE ACEITE",  "qty": 1, "price": 45.00, "type": "Bien"},
+            ],
+        )
+        self.assertTrue(result.auth_number, "Expected auth_number")
+        print(f"\n  FACT Combustible auth: {result.auth_number}")
 
 
 if __name__ == "__main__":

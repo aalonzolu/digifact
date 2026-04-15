@@ -14,10 +14,11 @@
 import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { DigifactClient, DigifactError } from '../src/index.js';
-import { gtNow, padTaxid, fmt, calcIva } from '../src/tax.js';
+import { gtNow, padTaxid, fmt, calcIva, calcFuelLine } from '../src/tax.js';
 import { DteResult } from '../src/client.js';
 import {
   buildFact, buildFesp, buildNdeb, buildNcre, buyerCf, buyerNit,
+  buildFactCombustible,
 } from '../src/builder.js';
 
 const TAXID    = process.env.DIGIFACT_TAXID    || '';
@@ -128,6 +129,114 @@ describe('Unit: builder', () => {
     const comp = payload.AdditionalDocumentInfo.AdditionalInfo[0];
     assert.equal(comp.Code, 'NCRE');
     assert.ok('AditionalInfo' in comp);
+  });
+});
+
+describe('Unit: calcFuelLine', () => {
+  test('fuel line math correct', () => {
+    const r = calcFuelLine(1, 30.30, 4.70);
+    assert.equal(r.qty,       '1.000000');
+    assert.equal(r.price,     '30.300000');
+    assert.equal(r.lineTotal, '35.000000');
+    assert.equal(r.taxable,   '27.053571');
+    assert.equal(r.iva,       '3.246429');
+    assert.equal(r.petrol,    '4.700000');
+  });
+
+  test('taxable + iva equals gross', () => {
+    const r = calcFuelLine(2, 50, 3);
+    const sum = (parseFloat(r.taxable) + parseFloat(r.iva)).toFixed(6);
+    assert.equal(sum, '100.000000');
+    assert.equal(r.lineTotal, '106.000000');
+  });
+});
+
+describe('Unit: buildFactCombustible', () => {
+  test('has DocType FACT and adenda code 00000013', () => {
+    const payload = buildFactCombustible('12345678', 'SELLER', 'ADDR', buyerCf(), [
+      { description: 'SUPER', qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
+    ]);
+    assert.equal(payload.Header.DocType, 'FACT');
+    assert.equal(payload.AdditionalDocumentInfo.AdditionalInfo[0].Code, '00000013');
+  });
+
+  test('fuel item has IVA and PETROLEO taxes', () => {
+    const payload = buildFactCombustible('12345678', 'SELLER', 'ADDR', buyerCf(), [
+      { description: 'SUPER', qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
+    ]);
+    const taxes = payload.Items[0].Taxes.Tax;
+    assert.equal(taxes.length, 2);
+    assert.equal(taxes[0].Description, 'IVA');
+    assert.equal(taxes[1].Description, 'PETROLEO');
+    assert.equal(taxes[1].Code, '1');
+  });
+
+  test('regular item in fuel invoice has only IVA', () => {
+    const payload = buildFactCombustible('12345678', 'SELLER', 'ADDR', buyerCf(), [
+      { description: 'FILTRO', qty: 1, price: 45.00, type: 'Bien' },
+    ]);
+    const taxes = payload.Items[0].Taxes.Tax;
+    assert.equal(taxes.length, 1);
+    assert.equal(taxes[0].Description, 'IVA');
+  });
+
+  test('PETROLEO total appears in TotalTaxes when present', () => {
+    const payload = buildFactCombustible('12345678', 'SELLER', 'ADDR', buyerCf(), [
+      { description: 'SUPER', qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
+      { description: 'FILTRO', qty: 1, price: 45.00, type: 'Bien' },
+    ]);
+    const totals = payload.Totals.TotalTaxes.TotalTax;
+    assert.equal(totals.length, 2);
+    assert.equal(totals[1].Description, 'PETROLEO');
+  });
+});
+
+describe('Unit: petroleo_rates auto-fill', () => {
+  test('fills petroleo_amount from rates when petroleo_code set but no amount', () => {
+    const client = new DigifactClient({
+      taxid: '12345678', username: 'U', password: 'P',
+      petroleo_rates: { '1': 4.70, '2': 4.60, '4': 1.30 },
+    });
+    const resolved = client._applyPetroleoRates([
+      { description: 'SUPER',  price: 30.30, petroleo_code: '1' },
+      { description: 'DIESEL', price: 30.70, petroleo_code: '4' },
+      { description: 'FILTRO', price: 45.00 },  // no code → untouched
+    ]);
+    assert.equal(resolved[0].petroleo_amount, 4.70);
+    assert.equal(resolved[1].petroleo_amount, 1.30);
+    assert.equal(resolved[2].petroleo_amount, undefined);
+  });
+
+  test('explicit petroleo_amount is never overwritten', () => {
+    const client = new DigifactClient({
+      taxid: '12345678', username: 'U', password: 'P',
+      petroleo_rates: { '1': 4.70 },
+    });
+    const resolved = client._applyPetroleoRates([
+      { description: 'SUPER', price: 30.30, petroleo_code: '1', petroleo_amount: 9.99 },
+    ]);
+    assert.equal(resolved[0].petroleo_amount, 9.99);
+  });
+
+  test('no petroleo_rates + petroleo_code → throws DigifactValidationError', () => {
+    const client = new DigifactClient({
+      taxid: '12345678', username: 'U', password: 'P',
+    });
+    assert.throws(
+      () => client._applyPetroleoRates([{ description: 'SUPER', price: 30.30, petroleo_code: '1' }]),
+      /petroleo_amount.*petroleo_rates|petroleo_rates.*petroleo_amount/i
+    );
+  });
+
+  test('code not in rates → throws DigifactValidationError', () => {
+    const client = new DigifactClient({
+      taxid: '12345678', username: 'U', password: 'P',
+      petroleo_rates: { '1': 4.70 },  // DIESEL not configured
+    });
+    assert.throws(
+      () => client._applyPetroleoRates([{ description: 'DIESEL', price: 30.70, petroleo_code: '4' }]),
+      /petroleo_amount.*petroleo_rates|petroleo_rates.*petroleo_amount/i
+    );
   });
 });
 
@@ -344,6 +453,18 @@ if (SKIP) {
       if (!factForQuery) return;
       const info = await CLIENT.getDteInfo(factForQuery.authNumber);
       assert.ok(typeof info === 'object');
+    });
+  });
+
+  describe('Integration: FACT Combustible', () => {
+    test('emit FACT Combustible with mixed items', async () => {
+      const result = await CLIENT.fuelInvoice('CF', [
+        { description: 'GASOLINA SUPER',    qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
+        { description: 'GASOLINA REGULAR',  qty: 1, price: 29.40, petroleo_amount: 4.60, petroleo_code: '2', type: 'Bien' },
+        { description: 'FILTRO DE ACEITE',  qty: 1, price: 45.00, type: 'Bien' },
+      ]);
+      assert.ok(result.authNumber);
+      console.log(`  FACT Combustible auth: ${result.authNumber}`);
     });
   });
 }

@@ -21,6 +21,7 @@ public sealed class DigifactClient : IDisposable
     private string _sellerAddress;
     private readonly string _afiliacionIva;
     private readonly string _tipoPersoneria;
+    private readonly IReadOnlyDictionary<string, decimal> _petroleoRates;
     private readonly HttpClient _http;
     private readonly bool _ownsHttpClient;
     private readonly ConcurrentDictionary<string, NitInfo> _nitCache = new();
@@ -64,6 +65,8 @@ public sealed class DigifactClient : IDisposable
         _sellerAddress = options.SellerAddress;
         _afiliacionIva = options.AfiliacionIva;
         _tipoPersoneria = options.TipoPersoneria;
+        _petroleoRates = options.PetroleoRates
+            ?? (IReadOnlyDictionary<string, decimal>)new Dictionary<string, decimal>();
         _baseUrl = baseUrl.TrimEnd('/');
 
         _ownsHttpClient = httpClient is null;
@@ -353,6 +356,47 @@ public sealed class DigifactClient : IDisposable
         var payload = DteBuilder.BuildCca(_taxid, sellerName, sellerAddress, buyerNode, items, cobros, _afiliacionIva);
         var data = await CertifyAsync(payload, ct);
         return DteResult.FromJson(data);
+    }
+
+    /// <summary>
+    /// Emit a combustible (fuel) FACT invoice.
+    /// <para>
+    /// <see cref="FuelLineItem"/>s with <c>PetroleoAmount &gt; 0</c> receive two Tax entries
+    /// (IVA + PETROLEO). Items with <c>PetroleoAmount == 0</c> are regular IVA-only items.
+    /// Common <c>PetroleoCode</c> values: "1" = SUPER, "2" = REGULAR, "4" = DIESEL.
+    /// </para>
+    /// </summary>
+    public async Task<DteResult> FuelInvoiceAsync(
+        BuyerDetails buyer, IReadOnlyList<FuelLineItem> items,
+        CancellationToken ct = default)
+    {
+        var (sellerName, sellerAddress) = await GetSellerInfoAsync(ct);
+        var buyerNode = await ResolveBuyerAsync(buyer, ct);
+        var resolved = ApplyPetroleoRates(items);
+        var payload = DteBuilder.BuildFactCombustible(_taxid, sellerName, sellerAddress, buyerNode, resolved, _afiliacionIva);
+        var data = await CertifyAsync(payload, ct);
+        return DteResult.FromJson(data);
+    }
+
+    private IReadOnlyList<FuelLineItem> ApplyPetroleoRates(IReadOnlyList<FuelLineItem> items)
+    {
+        var result = new List<FuelLineItem>(items.Count);
+        foreach (var item in items)
+        {
+            if (!string.IsNullOrEmpty(item.PetroleoCode) && item.PetroleoAmount == 0m)
+            {
+                if (!_petroleoRates.TryGetValue(item.PetroleoCode, out var rate))
+                    throw new DigifactValidationException(
+                        $"Item '{item.Description}' has PetroleoCode='{item.PetroleoCode}' "
+                        + "but no PetroleoAmount and no matching rate in PetroleoRates.");
+                result.Add(item with { PetroleoAmount = rate });
+            }
+            else
+            {
+                result.Add(item);
+            }
+        }
+        return result;
     }
 
     /// <summary>Emit a NCRE (Nota de Crédito).</summary>

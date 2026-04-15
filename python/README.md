@@ -140,6 +140,62 @@ All money values are formatted as strings with 6 decimal places.
 }
 ```
 
+## Fuel invoices (FACT Combustible)
+
+Fuel invoices emit IVA **and** a PETROLEO pass-through tax per SAT spec.
+Items without `petroleo_amount` are treated as regular IVA-only items and
+can coexist in the same invoice.
+
+### Option A — rates set once at client init (recommended for gas stations)
+
+```python
+# Set PETROLEO rates once per fuel type (Q/gallon, from MEM or supplier invoice)
+client = DigifactClient(
+    taxid="12345678",
+    username="FELUSER",
+    password="secret",
+    petroleo_rates={"1": 4.70, "2": 4.60, "4": 1.30},  # SUPER / REGULAR / DIESEL
+)
+
+# Only petroleo_code is needed — petroleo_amount is filled in automatically
+result = client.fuel_invoice(
+    buyer="CF",
+    items=[
+        {"description": "GASOLINA SUPER",    "qty": 30, "price": 30.30, "petroleo_code": "1", "type": "Bien"},
+        {"description": "GASOLINA REGULAR",  "qty": 20, "price": 29.40, "petroleo_code": "2", "type": "Bien"},
+        {"description": "GASOLINA DIESEL",   "qty": 50, "price": 30.70, "petroleo_code": "4", "type": "Bien"},
+        # Regular items (no petroleo_code): IVA only, can coexist
+        {"description": "FILTRO DE ACEITE",    "qty": 1, "price": 45.00,  "type": "Bien"},
+        {"description": "SET DE CANDELAS NGK", "qty": 1, "price": 400.00, "type": "Bien"},
+    ],
+)
+print(result.auth_number)
+```
+
+### Option B — explicit per-item amount
+
+```python
+result = client.fuel_invoice(
+    buyer="CF",
+    items=[
+        {"description": "GASOLINA SUPER",   "qty": 1, "price": 30.30, "petroleo_amount": 4.70, "petroleo_code": "1", "type": "Bien"},
+        {"description": "GASOLINA DIESEL",  "qty": 1, "price": 30.70, "petroleo_amount": 1.30, "petroleo_code": "4", "type": "Bien"},
+    ],
+)
+```
+
+### Fuel item dict keys
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `description` | `str` | required | Line description |
+| `price` | `float\|Decimal` | required | Unit price, IVA-inclusive |
+| `qty` | `float\|Decimal` | `1` | Quantity |
+| `type` | `str` | `"Servicio"` | `"Bien"` or `"Servicio"` |
+| `unit_of_measure` | `str` | `"UNI"` | SAT unit code |
+| `petroleo_amount` | `float\|Decimal` | — | Per-unit PETROLEO tax; omit for IVA-only items |
+| `petroleo_code` | `str` | `"1"` | `"1"`=SUPER, `"2"`=REGULAR, `"4"`=DIESEL. Required when `petroleo_amount` is omitted and `petroleo_rates` is set; raises `DigifactValidationError` if the code is not found in the rates dict. |
+
 ## Running tests
 
 ```bash

@@ -7,7 +7,7 @@
  *   - AditionalInfo         (missing 'd')
  */
 
-import { gtNow, calcLine, fmt } from './tax.js';
+import { gtNow, calcLine, calcFuelLine, fmt } from './tax.js';
 
 const NO_IVA_TYPES = new Set(['FPEQ', 'NABN', 'RDON', 'RECI']);
 const ADENDA_CODE_STD = 'FRONT-263C-444B-89BA-6F87EC1330C0';
@@ -483,5 +483,125 @@ export function buildCca(taxid, sellerName, sellerAddress, buyer, items, cobros,
         AditionalData: { Data: ccaData },
       }],
     },
+  };
+}
+
+// ── Combustible (fuel) builder ───────────────────────────────────────────────────────────
+
+function buildFuelItems(items) {
+  const lineItems = [];
+  let grandTotal    = 0n;
+  let totalIva      = 0n;
+  let totalPetroleo = 0n;
+
+  for (let i = 0; i < items.length; i++) {
+    const item     = items[i];
+    const qty      = item.qty ?? 1;
+    const price    = item.price;
+    const itemType = item.type ?? 'Bien';
+    const uom      = item.unit_of_measure ?? 'UNI';
+    const desc     = item.description;
+
+    const built = {
+      Number: String(i + 1),
+      Codes: null,
+      Type: itemType,
+      Description: desc,
+      UnitOfMeasure: uom,
+      Discounts: null,
+    };
+
+    if (item.petroleo_amount !== undefined && item.petroleo_amount !== null) {
+      const petrolCode = String(item.petroleo_code ?? '1');
+      const calc = calcFuelLine(qty, price, item.petroleo_amount);
+
+      built.Qty   = calc.qty;
+      built.Price = calc.price;
+      built.Taxes = {
+        Tax: [
+          { Code: '1',        Description: 'IVA',      TaxableAmount: calc.taxable, Amount: calc.iva },
+          { Code: petrolCode, Description: 'PETROLEO', TaxableAmount: calc.petrol,  Amount: calc.petrol },
+        ],
+      };
+      built.Totals = { TotalItem: calc.lineTotal };
+
+      grandTotal    = addDecimalStrings(null, calc.lineTotal, grandTotal);
+      totalIva      = addDecimalStrings(null, calc.iva, totalIva);
+      totalPetroleo = addDecimalStrings(null, calc.petrol, totalPetroleo);
+    } else {
+      const calc = calcLine(qty, price, true);
+
+      built.Qty   = calc.qty;
+      built.Price = calc.price;
+      built.Taxes = {
+        Tax: [{ Code: '1', Description: 'IVA', TaxableAmount: calc.taxable, Amount: calc.iva }],
+      };
+      built.Totals = { TotalItem: calc.lineTotal };
+
+      grandTotal = addDecimalStrings(null, calc.lineTotal, grandTotal);
+      totalIva   = addDecimalStrings(null, calc.iva, totalIva);
+    }
+
+    lineItems.push(built);
+  }
+
+  return {
+    lineItems,
+    grandTotal:    fmtAcc(grandTotal),
+    totalIva:      fmtAcc(totalIva),
+    totalPetroleo: fmtAcc(totalPetroleo),
+  };
+}
+
+function buildFuelAdenda() {
+  return {
+    AdditionalInfo: [{
+      Code: '00000013',
+      Type: 'ADENDA',
+      AditionalInfo: [
+        { Name: 'VALIDAR_REFERENCIA_INTERNA', Data: null, Value: 'VALIDAR' },
+      ],
+    }],
+  };
+}
+
+/**
+ * Build a FACT payload for combustible (fuel) invoices.
+ *
+ * Fuel items must include `petroleo_amount` (per-unit PETROLEO tax) and
+ * optionally `petroleo_code` ("1"=SUPER, "2"=REGULAR, "4"=DIESEL; default "1").
+ * Items without `petroleo_amount` are treated as regular IVA-only items.
+ *
+ * @example
+ * // Fuel item:
+ * { description: 'GASOLINA SUPER', qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' }
+ * // Regular item in the same invoice:
+ * { description: 'FILTRO DE ACEITE', qty: 1, price: 45.00, type: 'Bien' }
+ */
+export function buildFactCombustible(taxid, sellerName, sellerAddress, buyer, items, {
+  afiliacion = 'GEN',
+  tipoFrase = '1',
+  escenario = '1',
+  sellerEmail = null,
+} = {}) {
+  const [isoNow] = gtNow();
+  const { lineItems, grandTotal, totalIva, totalPetroleo } = buildFuelItems(items);
+  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase, escenario, email: sellerEmail });
+
+  const totalTax = [{ Description: 'IVA', Amount: totalIva }];
+  if (parseFloat(totalPetroleo) > 0) {
+    totalTax.push({ Description: 'PETROLEO', Amount: totalPetroleo });
+  }
+
+  return {
+    Version: '1.00', CountryCode: 'GT',
+    Header: { DocType: 'FACT', IssuedDateTime: isoNow, Currency: 'GTQ' },
+    Seller: seller, Buyer: buyer, ThirdParties: null,
+    Items: lineItems,
+    Totals: {
+      TotalTaxes: { TotalTax: totalTax },
+      GrandTotal: { InvoiceTotal: grandTotal },
+    },
+    AdditionalDocumentInfo: buildFuelAdenda(),
   };
 }

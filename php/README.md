@@ -79,7 +79,40 @@ echo $info['name'];
 
 // Get DTE
 $doc = $client->getDte('XXXXXXXX-...');
+
+// FACT Combustible — rates set once at init (recommended for gas stations)
+$stationClient = new DigifactClient([
+    'taxid' => '12345678', 'username' => 'FELUSER', 'password' => 'secret',
+    'petroleo_rates' => ['1' => 4.70, '2' => 4.60, '4' => 1.30], // SUPER / REGULAR / DIESEL
+]);
+// Only petroleo_code needed — petroleo_amount is filled in automatically
+$result = $stationClient->fuelInvoice('CF', [
+    ['description' => 'GASOLINA SUPER',    'qty' => 30, 'price' => 30.30, 'petroleo_code' => '1', 'type' => 'Bien'],
+    ['description' => 'GASOLINA REGULAR',  'qty' => 20, 'price' => 29.40, 'petroleo_code' => '2', 'type' => 'Bien'],
+    ['description' => 'GASOLINA DIESEL',   'qty' => 50, 'price' => 30.70, 'petroleo_code' => '4', 'type' => 'Bien'],
+    // Regular items (no petroleo_code): IVA only, can coexist
+    ['description' => 'FILTRO DE ACEITE',    'qty' => 1, 'price' => 45.00, 'type' => 'Bien'],
+    ['description' => 'SET DE CANDELAS NGK', 'qty' => 1, 'price' => 400.00, 'type' => 'Bien'],
+]);
+echo $result->authNumber;
+
+// Alternative: explicit petroleo_amount per item
+$result2 = $client->fuelInvoice('CF', [
+    ['description' => 'GASOLINA SUPER', 'qty' => 1, 'price' => 30.30, 'petroleo_amount' => 4.70, 'petroleo_code' => '1', 'type' => 'Bien'],
+]);
 ```
+
+## Fuel invoice item keys
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `description` | `string` | required | Line description |
+| `price` | `float` | required | Unit price, IVA-inclusive |
+| `qty` | `float` | `1` | Quantity |
+| `type` | `string` | `'Servicio'` | `'Bien'` or `'Servicio'` |
+| `unit_of_measure` | `string` | `'UNI'` | SAT unit code |
+| `petroleo_amount` | `float` | — | Per-unit PETROLEO tax (omit for regular IVA-only items) |
+| `petroleo_code` | `string` | `'1'` | `'1'`=SUPER, `'2'`=REGULAR, `'4'`=DIESEL. When set without `petroleo_amount`, the code must resolve to a rate in `petroleo_rates` or a `DigifactValidationException` is thrown. |
 
 ## Running tests
 

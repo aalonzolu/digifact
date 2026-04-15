@@ -52,6 +52,14 @@ Thumbs.db
 *.swo
 *~
 
+# ── .NET build artifacts ─────────────────────────────────────────────────────
+dotnet/bin/
+dotnet/obj/
+dotnet/tests/bin/
+dotnet/tests/obj/
+dotnet/examples/**/bin/
+dotnet/examples/**/obj/
+
 # ── Smoke / test output ───────────────────────────────────────────────────────
 /tmp/
 smoke_out*.txt

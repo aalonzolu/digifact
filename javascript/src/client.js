@@ -27,6 +27,7 @@ import {
   buildFpeq,
   buildReci,
   buildCca,
+  buildFactCombustible,
 } from './builder.js';
 
 const BASE_URLS = {
@@ -70,6 +71,7 @@ export class DigifactClient {
    * @param {string} [config.afiliacion_iva]  "GEN" | "PEQ" | "EXE"
    * @param {string} [config.tipo_personeria]
    * @param {number} [config.timeout]  ms, default 120000
+   * @param {Object<string,number>} [config.petroleo_rates]  Code→amount map, e.g. {"1":4.70,"2":4.60,"4":1.30}
    */
   constructor({
     taxid,
@@ -82,6 +84,7 @@ export class DigifactClient {
     afiliacion_iva: afiliacionIva = 'GEN',
     tipo_personeria: tipoPersoneria = '1',
     timeout = 120_000,
+    petroleo_rates: petroleoRates = {},
   }) {
     this.taxid = taxid.replace(/\D/g, '');
     this.paddedTaxid = padTaxid(taxid);
@@ -90,6 +93,7 @@ export class DigifactClient {
     this.afiliacionIva = afiliacionIva;
     this.tipoPersoneria = tipoPersoneria;
     this.timeout = timeout;
+    this.petroleoRates = Object.assign({}, petroleoRates);
     if (!this.taxid) throw new TypeError('taxid must contain at least one digit');
     if (!username) throw new TypeError('username is required');
     if (!token && !password) throw new TypeError('password or token is required');
@@ -333,6 +337,50 @@ export class DigifactClient {
     const payload = buildCca(this.taxid, sellerName, sellerAddress, buyerObj, items, cobros, { afiliacion: this.afiliacionIva });
     const data = await this._certify(payload);
     return DteResult.fromResponse(data);
+  }
+
+  /**
+   * Emit a combustible (fuel) FACT invoice.
+   *
+   * Fuel items must include `petroleo_amount` (per-unit PETROLEO tax) and optionally
+   * `petroleo_code` ("1"=SUPER, "2"=REGULAR, "4"=DIESEL; default "1").
+   * Items without `petroleo_amount` are treated as regular IVA-only items.
+   *
+   * @param {string|object} buyer
+   * @param {Array<object>} items
+   * @returns {Promise<DteResult>}
+   *
+   * @example
+   * await client.fuelInvoice('CF', [
+   *   { description: 'GASOLINA SUPER', qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
+   *   { description: 'FILTRO DE ACEITE', qty: 1, price: 45.00, type: 'Bien' },
+   * ]);
+   */
+  async fuelInvoice(buyer, items) {
+    const [sellerName, sellerAddress] = await this._getSellerInfo();
+    const buyerObj = await this._resolveBuyer(buyer);
+    const resolved = this._applyPetroleoRates(items);
+    const payload = buildFactCombustible(this.taxid, sellerName, sellerAddress, buyerObj, resolved, { afiliacion: this.afiliacionIva });
+    const data = await this._certify(payload);
+    return DteResult.fromResponse(data);
+  }
+
+  /** @private */
+  _applyPetroleoRates(items) {
+    return items.map(item => {
+      const code = item.petroleo_code;
+      if (code != null && item.petroleo_amount == null) {
+        const rate = this.petroleoRates[String(code)];
+        if (rate == null) {
+          throw new DigifactValidationError(
+            `Item '${item.description ?? ''}' has petroleo_code='${code}' ` +
+            'but no petroleo_amount and no matching rate in petroleo_rates.'
+          );
+        }
+        return { ...item, petroleo_amount: rate };
+      }
+      return item;
+    });
   }
 
   /**

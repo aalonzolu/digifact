@@ -113,4 +113,37 @@ class TaxHelper
             'discount'  => self::fmt($discount, 2),
         ];
     }
+
+    /**
+     * Build all line calculations for a fuel (combustible) item.
+     *
+     * The PETROLEO tax is a fixed pass-through amount supplied by the caller.
+     * IVA is calculated only on the IVA-inclusive unit price (not on PETROLEO).
+     * TotalItem = (qty × unitPrice) + (qty × petrolAmountPerUnit).
+     *
+     * @param string $qty                 Quantity as string
+     * @param string $unitPrice           Unit price (IVA-inclusive, excluding PETROLEO) as string
+     * @param string $petrolAmountPerUnit Per-unit PETROLEO tax amount as string
+     * @return array{qty:string, price:string, lineTotal:string, taxable:string, iva:string, petrol:string}
+     */
+    public static function calcFuelLine(
+        string $qty,
+        string $unitPrice,
+        string $petrolAmountPerUnit
+    ): array {
+        $gross       = bcmul($qty, $unitPrice, self::SCALE);
+        $petrolTotal = bcmul($qty, $petrolAmountPerUnit, self::SCALE);
+        $lineTotal   = bcadd($gross, $petrolTotal, self::SCALE);
+
+        [$taxableAmt, $ivaAmt] = self::calcIva($gross);
+
+        return [
+            'qty'      => self::fmt($qty),
+            'price'    => self::fmt($unitPrice),
+            'lineTotal'=> self::fmt($lineTotal),
+            'taxable'  => $taxableAmt,
+            'iva'      => $ivaAmt,
+            'petrol'   => self::fmt($petrolTotal),
+        ];
+    }
 }

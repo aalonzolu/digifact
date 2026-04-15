@@ -79,7 +79,50 @@ Console.WriteLine(info.Name);
 
 // Get DTE
 var doc = await client.GetDteAsync("XXXXXXXX-...");
+
+// FACT Combustible — rates set once at init (recommended for gas stations)
+// PetroleoCode: "1"=SUPER, "2"=REGULAR, "4"=DIESEL
+var stationClient = new DigifactClient(new DigifactOptions
+{
+    Taxid = "12345678", Username = "FELUSER", Password = "secret",
+    PetroleoRates = new Dictionary<string, decimal>
+    {
+        ["1"] = 4.70m,  // SUPER
+        ["2"] = 4.60m,  // REGULAR
+        ["4"] = 1.30m,  // DIESEL
+    },
+});
+// PetroleoAmount filled in automatically from PetroleoRates
+var fuel = await stationClient.FuelInvoiceAsync(
+    new BuyerDetails("CF"),
+    new[]
+    {
+        new FuelLineItem { Description = "GASOLINA SUPER",    Qty = 30m, Price = 30.30m, PetroleoCode = "1" },
+        new FuelLineItem { Description = "GASOLINA REGULAR",  Qty = 20m, Price = 29.40m, PetroleoCode = "2" },
+        new FuelLineItem { Description = "GASOLINA DIESEL",   Qty = 50m, Price = 30.70m, PetroleoCode = "4" },
+        // Regular items: PetroleoAmount = 0 (IVA only)
+        new FuelLineItem { Description = "FILTRO DE ACEITE",    Qty = 1m, Price = 45.00m },
+        new FuelLineItem { Description = "SET DE CANDELAS NGK", Qty = 1m, Price = 400.00m },
+    });
+Console.WriteLine(fuel.AuthNumber);
+
+// Alternative: explicit PetroleoAmount per item (no PetroleoRates needed)
+var fuel2 = await client.FuelInvoiceAsync(
+    new BuyerDetails("CF"),
+    new[] { new FuelLineItem { Description = "GASOLINA SUPER", Qty = 1m, Price = 30.30m, PetroleoAmount = 4.70m, PetroleoCode = "1" } });
 ```
+
+## FuelLineItem properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `Description` | `string` | required | Line description |
+| `Price` | `decimal` | required | Unit price, IVA-inclusive |
+| `Qty` | `decimal` | `1` | Quantity |
+| `Type` | `string` | `"Bien"` | `"Bien"` or `"Servicio"` |
+| `UnitOfMeasure` | `string` | `"UNI"` | SAT unit code |
+| `PetroleoAmount` | `decimal` | `0` | Per-unit PETROLEO tax; `0` = IVA-only item |
+| `PetroleoCode` | `string` | `""` | `"1"`=SUPER, `"2"`=REGULAR, `"4"`=DIESEL. Leave empty for non-fuel items. When non-empty and `PetroleoAmount` is 0, the code must resolve to a rate in `PetroleoRates` or a `DigifactValidationException` is thrown. |
 
 ## Configuration
 
@@ -95,6 +138,7 @@ var doc = await client.GetDteAsync("XXXXXXXX-...");
 | `AfiliacionIva` | `string` | `"GEN"` | `"GEN"`, `"PEQ"`, or `"EXE"` |
 | `TipoPersoneria` | `string` | `"1"` | SAT RTU personería code |
 | `Timeout` | `TimeSpan` | 120s | HTTP request timeout |
+| `PetroleoRates` | `IDictionary<string,decimal>?` | `null` | PETROLEO code→amount map for `FuelInvoiceAsync` auto-fill |
 
 ## Running tests
 

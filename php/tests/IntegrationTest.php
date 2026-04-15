@@ -94,7 +94,89 @@ class IntegrationTest extends TestCase
         $this->assertSame('2026-03-18 21:40:14', $result->issueDateTime);
     }
 
-    // ── Integration tests ─────────────────────────────────────────────────────
+    public function testCalcFuelLine(): void
+    {
+        $r = TaxHelper::calcFuelLine('1', '30.30', '4.70');
+        $this->assertSame('1.000000',  $r['qty']);
+        $this->assertSame('30.300000', $r['price']);
+        $this->assertSame('35.000000', $r['lineTotal']);
+        $this->assertSame('27.053571', $r['taxable']);
+        $this->assertSame('3.246429',  $r['iva']);
+        $this->assertSame('4.700000',  $r['petrol']);
+    }
+
+    public function testCalcFuelLineTaxablePlusIvaEqualsGross(): void
+    {
+        $r   = TaxHelper::calcFuelLine('2', '50.00', '3.00');
+        $sum = bcadd($r['taxable'], $r['iva'], 6);
+        // taxable + iva must equal qty × price (= 100.00)
+        $this->assertSame('100.000000', $sum);
+        // lineTotal = gross + petroleo = 100.00 + 6.00
+        $this->assertSame('106.000000', $r['lineTotal']);
+    }
+
+    // ── Unit: petroleo_rates auto-fill / validation ───────────────────────────
+
+    private function invokeApplyPetroleoRates(DigifactClient $client, array $items): array
+    {
+        $m = new \ReflectionMethod($client, 'applyPetroleoRates');
+        $m->setAccessible(true);
+        return $m->invoke($client, $items);
+    }
+
+    public function testPetroleoRatesFillsAmountFromRates(): void
+    {
+        $client = new DigifactClient([
+            'taxid' => '12345678', 'username' => 'U', 'password' => 'P',
+            'petroleo_rates' => ['1' => 4.70, '4' => 1.30],
+        ]);
+        $resolved = $this->invokeApplyPetroleoRates($client, [
+            ['description' => 'SUPER',  'price' => 30.30, 'petroleo_code' => '1', 'type' => 'Bien'],
+            ['description' => 'DIESEL', 'price' => 30.70, 'petroleo_code' => '4', 'type' => 'Bien'],
+            ['description' => 'FILTRO', 'price' => 45.00, 'type' => 'Bien'],  // no code → untouched
+        ]);
+        $this->assertSame(4.70, $resolved[0]['petroleo_amount']);
+        $this->assertSame(1.30, $resolved[1]['petroleo_amount']);
+        $this->assertArrayNotHasKey('petroleo_amount', $resolved[2]);
+    }
+
+    public function testPetroleoRatesExplicitAmountNotOverwritten(): void
+    {
+        $client = new DigifactClient([
+            'taxid' => '12345678', 'username' => 'U', 'password' => 'P',
+            'petroleo_rates' => ['1' => 4.70],
+        ]);
+        $resolved = $this->invokeApplyPetroleoRates($client, [
+            ['description' => 'SUPER', 'price' => 30.30, 'petroleo_code' => '1', 'petroleo_amount' => 9.99, 'type' => 'Bien'],
+        ]);
+        $this->assertSame(9.99, $resolved[0]['petroleo_amount']);
+    }
+
+    public function testPetroleoRatesMissingRaisesException(): void
+    {
+        $this->expectException(\Digifact\Fel\DigifactValidationException::class);
+        $client = new DigifactClient([
+            'taxid' => '12345678', 'username' => 'U', 'password' => 'P',
+            // no rates configured
+        ]);
+        $this->invokeApplyPetroleoRates($client, [
+            ['description' => 'SUPER', 'price' => 30.30, 'petroleo_code' => '1', 'type' => 'Bien'],
+        ]);
+    }
+
+    public function testPetroleoRatesCodeNotInRatesRaisesException(): void
+    {
+        $this->expectException(\Digifact\Fel\DigifactValidationException::class);
+        $client = new DigifactClient([
+            'taxid' => '12345678', 'username' => 'U', 'password' => 'P',
+            'petroleo_rates' => ['1' => 4.70],  // DIESEL not configured
+        ]);
+        $this->invokeApplyPetroleoRates($client, [
+            ['description' => 'DIESEL', 'price' => 30.70, 'petroleo_code' => '4', 'type' => 'Bien'],
+        ]);
+    }
+
+
 
     public function testLogin(): void
     {
@@ -278,5 +360,17 @@ class IntegrationTest extends TestCase
 
         $info = $client->getDteInfo($fact->authNumber);
         $this->assertIsArray($info);
+    }
+
+    public function testFuelInvoice(): void
+    {
+        $client = $this->requireClient();
+        $result = $client->fuelInvoice('CF', [
+            ['description' => 'GASOLINA SUPER',    'qty' => 1, 'price' => 30.30, 'petroleo_amount' => 4.70, 'petroleo_code' => '1', 'type' => 'Bien'],
+            ['description' => 'GASOLINA REGULAR',  'qty' => 1, 'price' => 29.40, 'petroleo_amount' => 4.60, 'petroleo_code' => '2', 'type' => 'Bien'],
+            ['description' => 'FILTRO DE ACEITE',  'qty' => 1, 'price' => 45.00, 'type' => 'Bien'],
+        ]);
+        $this->assertNotEmpty($result->authNumber);
+        echo "\n  FACT Combustible auth: " . $result->authNumber;
     }
 }

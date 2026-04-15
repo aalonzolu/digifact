@@ -11,6 +11,7 @@ import requests
 from .builder import (
     build_cca,
     build_fact,
+    build_fact_combustible,
     build_fcam,
     build_fesp,
     build_fpeq,
@@ -81,6 +82,12 @@ class DigifactClient:
         HTTP request timeout in seconds (default 120).
     session:
         Optional ``requests.Session`` to use (useful for testing / mocking).
+    petroleo_rates:
+        Optional mapping of PETROLEO code → per-unit tax amount, e.g.
+        ``{"1": 4.70, "2": 4.60, "4": 1.30}`` (SUPER/REGULAR/DIESEL).
+        When set, fuel items in :meth:`fuel_invoice` that provide
+        ``petroleo_code`` but omit ``petroleo_amount`` will have the amount
+        filled in automatically from this table.
     """
 
     def __init__(
@@ -97,6 +104,7 @@ class DigifactClient:
         tipo_personeria: str = "1",
         timeout: int = 120,
         session: requests.Session | None = None,
+        petroleo_rates: dict[str, float] | None = None,
     ) -> None:
         self.taxid = re.sub(r"\D", "", taxid)  # digits only
         if not self.taxid:
@@ -124,6 +132,7 @@ class DigifactClient:
         self._seller_name: str = seller_name
         self._seller_address: str = seller_address
         self._nit_cache: dict[str, dict] = {}
+        self.petroleo_rates: dict[str, float] = dict(petroleo_rates) if petroleo_rates else {}
 
         self._session = session or requests.Session()
 
@@ -403,6 +412,69 @@ class DigifactClient:
         )
         data = self._certify(payload)
         return self._parse_result(data)
+
+    def fuel_invoice(
+        self,
+        buyer: str | dict,
+        items: list[dict],
+    ) -> DteResult:
+        """Emit a combustible (fuel) FACT invoice.
+
+        Parameters
+        ----------
+        buyer:
+            "CF", NIT string, CUI dict, or full buyer dict.
+        items:
+            List of item dicts. Fuel items must include:
+
+            * ``petroleo_amount`` – per-unit PETROLEO tax amount (float).
+            * ``petroleo_code`` – SAT code: ``"1"`` SUPER, ``"2"`` REGULAR,
+              ``"4"`` DIESEL (default ``"1"``).
+
+            Items without ``petroleo_amount`` are treated as regular IVA-only items.
+
+        Example::
+
+            client.fuel_invoice("CF", [
+                {"description": "GASOLINA SUPER", "qty": 1, "price": 30.30,
+                 "petroleo_amount": 4.70, "petroleo_code": "1", "type": "Bien"},
+                {"description": "FILTRO DE ACEITE", "qty": 1, "price": 45.00,
+                 "type": "Bien"},
+            ])
+        """
+        seller_name, seller_address = self._get_seller_info()
+        buyer_dict = self._resolve_buyer(buyer)
+        resolved = self._apply_petroleo_rates(items)
+        payload = build_fact_combustible(
+            self.taxid,
+            seller_name,
+            seller_address,
+            buyer_dict,
+            resolved,
+            afiliacion=self.afiliacion_iva,
+        )
+        data = self._certify(payload)
+        return self._parse_result(data)
+
+    def _apply_petroleo_rates(self, items: list[dict]) -> list[dict]:
+        """Fill in petroleo_amount from self.petroleo_rates when omitted.
+
+        Raises DigifactValidationError if an item has petroleo_code but no
+        petroleo_amount and no matching rate in petroleo_rates.
+        """
+        resolved = []
+        for item in items:
+            code = item.get("petroleo_code")
+            if code is not None and "petroleo_amount" not in item:
+                rate = self.petroleo_rates.get(str(code)) if self.petroleo_rates else None
+                if rate is None:
+                    raise DigifactValidationError(
+                        f"Item '{item.get('description', '')}' has petroleo_code='{code}' "
+                        "but no petroleo_amount and no matching rate in petroleo_rates."
+                    )
+                item = {**item, "petroleo_amount": rate}
+            resolved.append(item)
+        return resolved
 
     def credit_note(
         self,

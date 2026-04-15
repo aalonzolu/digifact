@@ -37,4 +37,14 @@ public sealed class DigifactOptions
 
     /// <summary>HTTP request timeout. Defaults to 120 seconds.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(120);
+
+    /// <summary>
+    /// Optional PETROLEO code → per-unit tax amount map, e.g.
+    /// <c>new Dictionary&lt;string,decimal&gt; {{"1",4.70m},{"2",4.60m},{"4",1.30m}}</c>.
+    /// When set, <see cref="DigifactClient.FuelInvoiceAsync"/> fills in
+    /// <see cref="FuelLineItem.PetroleoAmount"/> automatically for items that
+    /// provide <see cref="FuelLineItem.PetroleoCode"/> but leave <c>PetroleoAmount</c>
+    /// as zero.
+    /// </summary>
+    public IReadOnlyDictionary<string, decimal>? PetroleoRates { get; init; }
 }
