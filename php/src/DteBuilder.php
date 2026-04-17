@@ -26,6 +26,43 @@ class DteBuilder
             : self::ADENDA_CODE_STD;
     }
 
+    /**
+     * Default (TipoFrase, CodigoEscenario) pair for a (docType, afiliacion) combo.
+     *
+     * Returns null when the DTE type does not include frases (e.g. FESP).
+     * Callers can override any default via explicit parameters.
+     *
+     * @return array{0:string,1:string}|null
+     */
+    public static function defaultFrase(string $docType, string $afiliacion = 'GEN'): ?array
+    {
+        $afi = strtoupper($afiliacion);
+        switch ($docType) {
+            case 'FESP':
+                return null; // FESP does not carry frases
+            case 'FPEQ':
+                return ['2', '1']; // Pequeño Contribuyente
+            case 'RDON':
+                return ['4', '4'];
+            case 'RECI':
+                return ['4', '5'];
+            case 'NABN':
+                return ['1', '1'];
+            default:
+                // FACT, NCRE, NDEB, FCAM, FACT+CCA, FACT+combustible
+                if ($afi === 'PEQ') {
+                    return ['2', '1'];
+                }
+                if ($afi === 'EXE') {
+                    return ['4', '1'];
+                }
+                // GEN (IVA General). Escenario 2 = ISR OPC (régimen opcional
+                // simplificado sobre ingresos), el más común. Para ISR TRIM
+                // (sobre utilidades) se debe sobreescribir escenario a '1'.
+                return ['1', '2'];
+        }
+    }
+
     // ── Buyer helpers ─────────────────────────────────────────────────────────
 
     public static function buyerCf(): array
@@ -271,8 +308,8 @@ class DteBuilder
         array $items,
         string $docType = 'FACT',
         string $afiliacion = 'GEN',
-        string $tipoFrase = '1',
-        string $escenario = '1',
+        ?string $tipoFrase = null,
+        ?string $escenario = null,
         string $amountStr = '',
         string $observaciones = '-',
         ?array $extraHeader = null,
@@ -283,9 +320,13 @@ class DteBuilder
 
         [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, $taxable);
 
+        [$defTf, $defEs] = self::defaultFrase($docType, $afiliacion);
+        $tf = $tipoFrase ?? $defTf;
+        $es = $escenario ?? $defEs;
+
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
-            $afiliacion, $tipoFrase, $escenario,
+            $afiliacion, $tf, $es,
             email: $sellerEmail
         );
 
@@ -318,14 +359,20 @@ class DteBuilder
         array $items,
         array $paymentTerms,
         string $afiliacion = 'GEN',
-        ?string $sellerEmail = null
+        ?string $sellerEmail = null,
+        ?string $tipoFrase = null,
+        ?string $escenario = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
 
+        [$defTf, $defEs] = self::defaultFrase('FCAM', $afiliacion);
+        $tf = $tipoFrase ?? $defTf;
+        $es = $escenario ?? $defEs;
+
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
-            $afiliacion, '1', '1',
+            $afiliacion, $tf, $es,
             email: $sellerEmail
         );
 
@@ -369,14 +416,20 @@ class DteBuilder
         array $origin,
         string $reason,
         string $afiliacion = 'GEN',
-        ?string $sellerEmail = null
+        ?string $sellerEmail = null,
+        ?string $tipoFrase = null,
+        ?string $escenario = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
 
+        [$defTf, $defEs] = self::defaultFrase('NDEB', $afiliacion);
+        $tf = $tipoFrase ?? $defTf;
+        $es = $escenario ?? $defEs;
+
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
-            $afiliacion, '1', '1',
+            $afiliacion, $tf, $es,
             email: $sellerEmail
         );
 
@@ -415,14 +468,20 @@ class DteBuilder
         array $origin,
         string $reason,
         string $afiliacion = 'GEN',
-        ?string $sellerEmail = null
+        ?string $sellerEmail = null,
+        ?string $tipoFrase = null,
+        ?string $escenario = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
 
+        [$defTf, $defEs] = self::defaultFrase('NCRE', $afiliacion);
+        $tf = $tipoFrase ?? $defTf;
+        $es = $escenario ?? $defEs;
+
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
-            $afiliacion, '1', '1',
+            $afiliacion, $tf, $es,
             email: $sellerEmail
         );
 
@@ -558,14 +617,20 @@ class DteBuilder
         array $items,
         string $amountStr = '',
         string $observaciones = '-',
-        ?string $sellerEmail = null
+        ?string $sellerEmail = null,
+        ?string $tipoFrase = null,
+        ?string $escenario = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal] = self::buildItems($items, false);
 
+        [$defTf, $defEs] = self::defaultFrase('FPEQ', 'PEQ');
+        $tf = $tipoFrase ?? $defTf;
+        $es = $escenario ?? $defEs;
+
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
-            'PEQ', '3', '1',
+            'PEQ', $tf, $es,
             email: $sellerEmail
         );
 
@@ -638,14 +703,20 @@ class DteBuilder
         array $items,
         array $cobros,
         string $afiliacion = 'GEN',
-        ?string $sellerEmail = null
+        ?string $sellerEmail = null,
+        ?string $tipoFrase = null,
+        ?string $escenario = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
 
+        [$defTf, $defEs] = self::defaultFrase('FACT', $afiliacion);
+        $tf = $tipoFrase ?? $defTf;
+        $es = $escenario ?? $defEs;
+
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
-            $afiliacion, '1', '1',
+            $afiliacion, $tf, $es,
             email: $sellerEmail
         );
 
@@ -813,17 +884,21 @@ class DteBuilder
         array $buyer,
         array $items,
         string $afiliacion = 'GEN',
-        string $tipoFrase = '1',
-        string $escenario = '1',
+        ?string $tipoFrase = null,
+        ?string $escenario = null,
         ?string $sellerEmail = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
 
         [$lineItems, $grandTotal, $totalIva, $totalPetroleo] = self::buildFuelItems($items);
 
+        [$defTf, $defEs] = self::defaultFrase('FACT', $afiliacion);
+        $tf = $tipoFrase ?? $defTf;
+        $es = $escenario ?? $defEs;
+
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
-            $afiliacion, $tipoFrase, $escenario,
+            $afiliacion, $tf, $es,
             email: $sellerEmail
         );
 

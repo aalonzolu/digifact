@@ -35,6 +35,20 @@ public sealed class DigifactOptions
     /// <summary>TipoPersoneria code registered in SAT RTU. Defaults to <c>"1"</c>.</summary>
     public string TipoPersoneria { get; init; } = "1";
 
+    /// <summary>
+    /// Global override for TipoFrase (SAT <c>AdditionlInfo</c>). When <c>null</c> (default),
+    /// the SDK uses <see cref="DteBuilder.DefaultFrase"/> based on DocType + AfiliacionIva.
+    /// Can be overridden per-call via <see cref="InvoiceOptions.TipoFrase"/>.
+    /// </summary>
+    public string? TipoFrase { get; init; }
+
+    /// <summary>
+    /// Global override for CodigoEscenario (SAT <c>AdditionlInfo</c>). When <c>null</c> (default),
+    /// the SDK uses <see cref="DteBuilder.DefaultFrase"/> based on DocType + AfiliacionIva.
+    /// Common values for GEN: <c>"2"</c> = ISR régimen opcional, <c>"1"</c> = ISR trimestral.
+    /// </summary>
+    public string? Escenario { get; init; }
+
     /// <summary>HTTP request timeout. Defaults to 120 seconds.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(120);
 

@@ -28,6 +28,7 @@ import {
   buildReci,
   buildCca,
   buildFactCombustible,
+  defaultFrase,
 } from './builder.js';
 
 const BASE_URLS = {
@@ -70,6 +71,8 @@ export class DigifactClient {
    * @param {string} [config.seller_address]
    * @param {string} [config.afiliacion_iva]  "GEN" | "PEQ" | "EXE"
    * @param {string} [config.tipo_personeria]
+   * @param {string} [config.tipo_frase]  Global override for TipoFrase. If null, uses defaults table.
+   * @param {string} [config.escenario]   Global override for CodigoEscenario. If null, uses defaults table.
    * @param {number} [config.timeout]  ms, default 120000
    * @param {Object<string,number>} [config.petroleo_rates]  Code→amount map, e.g. {"1":4.70,"2":4.60,"4":1.30}
    */
@@ -83,6 +86,8 @@ export class DigifactClient {
     seller_address: sellerAddress = '',
     afiliacion_iva: afiliacionIva = 'GEN',
     tipo_personeria: tipoPersoneria = '1',
+    tipo_frase: tipoFrase = null,
+    escenario = null,
     timeout = 120_000,
     petroleo_rates: petroleoRates = {},
   }) {
@@ -92,6 +97,8 @@ export class DigifactClient {
     this.password = password;
     this.afiliacionIva = afiliacionIva;
     this.tipoPersoneria = tipoPersoneria;
+    this.tipoFrase = tipoFrase;
+    this.escenario = escenario;
     this.timeout = timeout;
     this.petroleoRates = Object.assign({}, petroleoRates);
     if (!this.taxid) throw new TypeError('taxid must contain at least one digit');
@@ -273,6 +280,18 @@ export class DigifactClient {
   // ── Public DTE methods ──────────────────────────────────────────────────────
 
   /**
+   * Resolve effective (TipoFrase, CodigoEscenario) for a DTE.
+   * Precedence: opts (per-call) → constructor globals → defaults table.
+   * @private
+   */
+  _resolveFrase(docType, opts = {}) {
+    const def = defaultFrase(docType, this.afiliacionIva) || [null, null];
+    const tf = opts.tipo_frase ?? this.tipoFrase ?? def[0];
+    const es = opts.escenario ?? this.escenario ?? def[1];
+    return [tf, es];
+  }
+
+  /**
    * Emit a DTE invoice.
    *
    * @param {string|object} buyer  "CF", NIT string, CUI object, or buyer object
@@ -283,6 +302,8 @@ export class DigifactClient {
    * @param {string} [opts.amount_str]      Human-readable total for ADENDA
    * @param {string} [opts.observaciones]
    * @param {string} [opts.tipo_personeria] Required for RDON
+   * @param {string} [opts.tipo_frase]      Override TipoFrase for this call
+   * @param {string} [opts.escenario]       Override CodigoEscenario for this call
    * @returns {Promise<DteResult>}
    */
   async invoice(buyer, items, opts = {}) {
@@ -291,6 +312,7 @@ export class DigifactClient {
     const docType = opts.doc_type || 'FACT';
     const amountStr = opts.amount_str || '';
     const observaciones = opts.observaciones || '-';
+    const [tipoFrase, escenario] = this._resolveFrase(docType, opts);
 
     let payload;
 
@@ -298,7 +320,7 @@ export class DigifactClient {
       case 'FCAM': {
         const pt = opts.payment_terms;
         if (!pt || !pt.length) throw new DigifactValidationError('payment_terms is required for FCAM');
-        payload = buildFcam(this.taxid, sellerName, sellerAddress, buyerObj, items, pt, { afiliacion: this.afiliacionIva });
+        payload = buildFcam(this.taxid, sellerName, sellerAddress, buyerObj, items, pt, { afiliacion: this.afiliacionIva, tipoFrase, escenario });
         break;
       }
       case 'FESP':
@@ -310,7 +332,7 @@ export class DigifactClient {
         break;
       }
       case 'FPEQ':
-        payload = buildFpeq(this.taxid, sellerName, sellerAddress, buyerObj, items, { amountStr, observaciones });
+        payload = buildFpeq(this.taxid, sellerName, sellerAddress, buyerObj, items, { amountStr, observaciones, tipoFrase, escenario });
         break;
       case 'RECI':
         payload = buildReci(this.taxid, sellerName, sellerAddress, buyerObj, items, { afiliacion: this.afiliacionIva, amountStr, observaciones });
@@ -318,7 +340,7 @@ export class DigifactClient {
       default:
         // FACT (default), NABN, or any standard type
         payload = buildFact(this.taxid, sellerName, sellerAddress, buyerObj, items, {
-          docType, afiliacion: this.afiliacionIva, amountStr, observaciones,
+          docType, afiliacion: this.afiliacionIva, amountStr, observaciones, tipoFrase, escenario,
         });
         break;
     }
@@ -331,10 +353,11 @@ export class DigifactClient {
    * Emit a CCA (Cobro por Cuenta Ajena) FACT+CCA complemento.
    * @returns {Promise<DteResult>}
    */
-  async ccaInvoice(buyer, items, cobros) {
+  async ccaInvoice(buyer, items, cobros, opts = {}) {
     const [sellerName, sellerAddress] = await this._getSellerInfo();
     const buyerObj = await this._resolveBuyer(buyer);
-    const payload = buildCca(this.taxid, sellerName, sellerAddress, buyerObj, items, cobros, { afiliacion: this.afiliacionIva });
+    const [tipoFrase, escenario] = this._resolveFrase('FACT', opts);
+    const payload = buildCca(this.taxid, sellerName, sellerAddress, buyerObj, items, cobros, { afiliacion: this.afiliacionIva, tipoFrase, escenario });
     const data = await this._certify(payload);
     return DteResult.fromResponse(data);
   }
@@ -356,11 +379,12 @@ export class DigifactClient {
    *   { description: 'FILTRO DE ACEITE', qty: 1, price: 45.00, type: 'Bien' },
    * ]);
    */
-  async fuelInvoice(buyer, items) {
+  async fuelInvoice(buyer, items, opts = {}) {
     const [sellerName, sellerAddress] = await this._getSellerInfo();
     const buyerObj = await this._resolveBuyer(buyer);
     const resolved = this._applyPetroleoRates(items);
-    const payload = buildFactCombustible(this.taxid, sellerName, sellerAddress, buyerObj, resolved, { afiliacion: this.afiliacionIva });
+    const [tipoFrase, escenario] = this._resolveFrase('FACT', opts);
+    const payload = buildFactCombustible(this.taxid, sellerName, sellerAddress, buyerObj, resolved, { afiliacion: this.afiliacionIva, tipoFrase, escenario });
     const data = await this._certify(payload);
     return DteResult.fromResponse(data);
   }
@@ -388,10 +412,11 @@ export class DigifactClient {
    * @param {object} origin  {auth_number, date, series, number}
    * @returns {Promise<DteResult>}
    */
-  async creditNote(buyer, items, origin, reason) {
+  async creditNote(buyer, items, origin, reason, opts = {}) {
     const [sellerName, sellerAddress] = await this._getSellerInfo();
     const buyerObj = await this._resolveBuyer(buyer);
-    const payload = buildNcre(this.taxid, sellerName, sellerAddress, buyerObj, items, origin, reason, { afiliacion: this.afiliacionIva });
+    const [tipoFrase, escenario] = this._resolveFrase('NCRE', opts);
+    const payload = buildNcre(this.taxid, sellerName, sellerAddress, buyerObj, items, origin, reason, { afiliacion: this.afiliacionIva, tipoFrase, escenario });
     const data = await this._certify(payload);
     return DteResult.fromResponse(data);
   }
@@ -401,10 +426,11 @@ export class DigifactClient {
    * @param {object} origin  {auth_number, date, series, number}
    * @returns {Promise<DteResult>}
    */
-  async debitNote(buyer, items, origin, reason) {
+  async debitNote(buyer, items, origin, reason, opts = {}) {
     const [sellerName, sellerAddress] = await this._getSellerInfo();
     const buyerObj = await this._resolveBuyer(buyer);
-    const payload = buildNdeb(this.taxid, sellerName, sellerAddress, buyerObj, items, origin, reason, { afiliacion: this.afiliacionIva });
+    const [tipoFrase, escenario] = this._resolveFrase('NDEB', opts);
+    const payload = buildNdeb(this.taxid, sellerName, sellerAddress, buyerObj, items, origin, reason, { afiliacion: this.afiliacionIva, tipoFrase, escenario });
     const data = await this._certify(payload);
     return DteResult.fromResponse(data);
   }

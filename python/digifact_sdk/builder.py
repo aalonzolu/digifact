@@ -27,6 +27,34 @@ def _adenda_code(doc_type: str) -> str:
     return ADENDA_CODE_ALT if doc_type in _ALT_ADENDA_TYPES else ADENDA_CODE_STD
 
 
+def default_frase(doc_type: str, afiliacion: str = "GEN") -> tuple[str, str] | None:
+    """Return default (TipoFrase, CodigoEscenario) for a (doc_type, afiliacion) combo.
+
+    Returns None when the DTE type does not carry frases (e.g. FESP).
+    Callers can override any default via explicit parameters.
+    """
+    afi = (afiliacion or "GEN").upper()
+    if doc_type == "FESP":
+        return None
+    if doc_type == "FPEQ":
+        return ("2", "1")
+    if doc_type == "RDON":
+        return ("4", "4")
+    if doc_type == "RECI":
+        return ("4", "5")
+    if doc_type == "NABN":
+        return ("1", "1")
+    # FACT, NCRE, NDEB, FCAM, FACT+CCA, FACT+combustible
+    if afi == "PEQ":
+        return ("2", "1")
+    if afi == "EXE":
+        return ("4", "1")
+    # GEN (IVA General). Escenario 2 = ISR OPC (régimen opcional simplificado
+    # sobre ingresos), el más común. Para ISR TRIM (sobre utilidades) se debe
+    # sobreescribir escenario a "1".
+    return ("1", "2")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -275,8 +303,8 @@ def build_fact(
     *,
     doc_type: str = "FACT",
     afiliacion: str = "GEN",
-    tipo_frase: str = "1",
-    escenario: str = "1",
+    tipo_frase: str | None = None,
+    escenario: str | None = None,
     amount_str: str = "",
     observaciones: str = "-",
     extra_header: dict | None = None,
@@ -288,13 +316,18 @@ def build_fact(
     taxable = doc_type not in NO_IVA_TYPES
     line_items, totals = _build_items(items, taxable=taxable)
 
+    def_pair = default_frase(doc_type, afiliacion)
+    def_tf, def_es = def_pair if def_pair else (None, None)
+    tf = tipo_frase if tipo_frase is not None else def_tf
+    es = escenario if escenario is not None else def_es
+
     seller = _build_seller(
         taxid,
         seller_name,
         seller_address,
         afiliacion=afiliacion,
-        tipo_frase=tipo_frase,
-        escenario=escenario,
+        tipo_frase=tf,
+        escenario=es,
         email=seller_email,
     )
 
@@ -335,6 +368,8 @@ def build_fcam(
     amount_str: str = "",
     observaciones: str = "-",
     seller_email: str | None = None,
+    tipo_frase: str | None = None,
+    escenario: str | None = None,
 ) -> dict:
     """Build a FCAM (Factura Cambiaria) DTE payload.
 
@@ -344,13 +379,17 @@ def build_fcam(
 
     line_items, totals = _build_items(items, taxable=True)
 
+    def_tf, def_es = default_frase("FCAM", afiliacion) or (None, None)
+    tf = tipo_frase if tipo_frase is not None else def_tf
+    es = escenario if escenario is not None else def_es
+
     seller = _build_seller(
         taxid,
         seller_name,
         seller_address,
         afiliacion=afiliacion,
-        tipo_frase="1",
-        escenario="1",
+        tipo_frase=tf,
+        escenario=es,
         email=seller_email,
     )
 
@@ -401,6 +440,8 @@ def build_ndeb(
     *,
     afiliacion: str = "GEN",
     seller_email: str | None = None,
+    tipo_frase: str | None = None,
+    escenario: str | None = None,
 ) -> dict:
     """Build a NDEB (Nota de Débito) DTE payload.
 
@@ -409,13 +450,17 @@ def build_ndeb(
     issue_dt, _, _ = gt_now()
     line_items, totals = _build_items(items, taxable=True)
 
+    def_tf, def_es = default_frase("NDEB", afiliacion) or (None, None)
+    tf = tipo_frase if tipo_frase is not None else def_tf
+    es = escenario if escenario is not None else def_es
+
     seller = _build_seller(
         taxid,
         seller_name,
         seller_address,
         afiliacion=afiliacion,
-        tipo_frase="1",
-        escenario="1",
+        tipo_frase=tf,
+        escenario=es,
         email=seller_email,
     )
 
@@ -479,6 +524,8 @@ def build_ncre(
     *,
     afiliacion: str = "GEN",
     seller_email: str | None = None,
+    tipo_frase: str | None = None,
+    escenario: str | None = None,
 ) -> dict:
     """Build a NCRE (Nota de Crédito) DTE payload.
 
@@ -487,13 +534,17 @@ def build_ncre(
     issue_dt, _, _ = gt_now()
     line_items, totals = _build_items(items, taxable=True)
 
+    def_tf, def_es = default_frase("NCRE", afiliacion) or (None, None)
+    tf = tipo_frase if tipo_frase is not None else def_tf
+    es = escenario if escenario is not None else def_es
+
     seller = _build_seller(
         taxid,
         seller_name,
         seller_address,
         afiliacion=afiliacion,
-        tipo_frase="1",
-        escenario="1",
+        tipo_frase=tf,
+        escenario=es,
         email=seller_email,
     )
 
@@ -715,18 +766,24 @@ def build_fpeq(
     amount_str: str = "",
     observaciones: str = "-",
     seller_email: str | None = None,
+    tipo_frase: str | None = None,
+    escenario: str | None = None,
 ) -> dict:
     """Build a FPEQ (Factura Pequeño Contribuyente) DTE payload — no IVA, AfiliacionIVA=PEQ."""
     issue_dt, _, _ = gt_now()
     line_items, totals = _build_items(items, taxable=False)
+
+    def_tf, def_es = default_frase("FPEQ", "PEQ") or (None, None)
+    tf = tipo_frase if tipo_frase is not None else def_tf
+    es = escenario if escenario is not None else def_es
 
     seller = _build_seller(
         taxid,
         seller_name,
         seller_address,
         afiliacion="PEQ",
-        tipo_frase="3",
-        escenario="1",
+        tipo_frase=tf,
+        escenario=es,
         email=seller_email,
     )
 
@@ -813,6 +870,8 @@ def build_cca(
     *,
     afiliacion: str = "GEN",
     seller_email: str | None = None,
+    tipo_frase: str | None = None,
+    escenario: str | None = None,
 ) -> dict:
     """Build a CCA (Cobro por Cuenta Ajena) FACT+CCA complemento payload.
 
@@ -831,13 +890,17 @@ def build_cca(
     issue_dt, _, _ = gt_now()
     line_items, totals = _build_items(items, taxable=True)
 
+    def_tf, def_es = default_frase("FACT", afiliacion) or (None, None)
+    tf = tipo_frase if tipo_frase is not None else def_tf
+    es = escenario if escenario is not None else def_es
+
     seller = _build_seller(
         taxid,
         seller_name,
         seller_address,
         afiliacion=afiliacion,
-        tipo_frase="1",
-        escenario="1",
+        tipo_frase=tf,
+        escenario=es,
         email=seller_email,
     )
 
@@ -1029,8 +1092,8 @@ def build_fact_combustible(
     items: list[dict],
     *,
     afiliacion: str = "GEN",
-    tipo_frase: str = "1",
-    escenario: str = "1",
+    tipo_frase: str | None = None,
+    escenario: str | None = None,
     seller_email: str | None = None,
 ) -> dict:
     """Build a FACT payload for combustible (fuel) invoices.
@@ -1053,13 +1116,17 @@ def build_fact_combustible(
 
     line_items, grand_total, total_iva, total_petroleo = _build_fuel_items(items)
 
+    def_tf, def_es = default_frase("FACT", afiliacion) or (None, None)
+    tf = tipo_frase if tipo_frase is not None else def_tf
+    es = escenario if escenario is not None else def_es
+
     seller = _build_seller(
         taxid,
         seller_name,
         seller_address,
         afiliacion=afiliacion,
-        tipo_frase=tipo_frase,
-        escenario=escenario,
+        tipo_frase=tf,
+        escenario=es,
         email=seller_email,
     )
 

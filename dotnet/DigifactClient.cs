@@ -21,6 +21,8 @@ public sealed class DigifactClient : IDisposable
     private string _sellerAddress;
     private readonly string _afiliacionIva;
     private readonly string _tipoPersoneria;
+    private readonly string? _tipoFrase;
+    private readonly string? _escenario;
     private readonly IReadOnlyDictionary<string, decimal> _petroleoRates;
     private readonly HttpClient _http;
     private readonly bool _ownsHttpClient;
@@ -65,6 +67,8 @@ public sealed class DigifactClient : IDisposable
         _sellerAddress = options.SellerAddress;
         _afiliacionIva = options.AfiliacionIva;
         _tipoPersoneria = options.TipoPersoneria;
+        _tipoFrase = options.TipoFrase;
+        _escenario = options.Escenario;
         _petroleoRates = options.PetroleoRates
             ?? (IReadOnlyDictionary<string, decimal>)new Dictionary<string, decimal>();
         _baseUrl = baseUrl.TrimEnd('/');
@@ -300,6 +304,18 @@ public sealed class DigifactClient : IDisposable
 
     // ── Public DTE methods ─────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Resolve effective (TipoFrase, CodigoEscenario) for a DTE.
+    /// Precedence: per-call override → client global → defaults table.
+    /// </summary>
+    private (string? Tf, string? Es) ResolveFrase(string docType, string? callTf = null, string? callEs = null)
+    {
+        var def = DteBuilder.DefaultFrase(docType, _afiliacionIva);
+        string? defTf = def?.TipoFrase;
+        string? defEs = def?.Escenario;
+        return (callTf ?? _tipoFrase ?? defTf, callEs ?? _escenario ?? defEs);
+    }
+
     /// <summary>Emit a DTE invoice (FACT, FCAM, NABN, FESP, RDON, FPEQ, RECI).</summary>
     /// <param name="buyer">
     /// Buyer identifier. Use <c>"CF"</c>, a NIT string (auto-lookup), or a
@@ -315,13 +331,17 @@ public sealed class DigifactClient : IDisposable
         var (sellerName, sellerAddress) = await GetSellerInfoAsync(ct);
         var buyerNode = await ResolveBuyerAsync(buyer, ct);
         string docType = opts.DocType.ToUpperInvariant();
+        var (tf, es) = ResolveFrase(docType, opts.TipoFrase, opts.Escenario);
 
         JsonObject payload = docType switch
         {
-            "FCAM" => BuildFcam(sellerName, sellerAddress, buyerNode, items, opts, ct),
+            "FCAM" => BuildFcam(sellerName, sellerAddress, buyerNode, items, opts, tf, es),
             "FESP" => DteBuilder.BuildFesp(_taxid, sellerName, sellerAddress, buyerNode, items, _afiliacionIva),
+            "FPEQ" => DteBuilder.BuildFpeq(_taxid, sellerName, sellerAddress, buyerNode, items,
+                opts.AmountStr, opts.Observaciones, tipoFrase: tf, escenario: es),
             _ => DteBuilder.BuildFact(_taxid, sellerName, sellerAddress, buyerNode, items,
-                docType, _afiliacionIva, amountStr: opts.AmountStr, observaciones: opts.Observaciones),
+                docType, _afiliacionIva, tipoFrase: tf, escenario: es,
+                amountStr: opts.AmountStr, observaciones: opts.Observaciones),
         };
 
         // RDON needs tipoPersoneria
@@ -338,22 +358,25 @@ public sealed class DigifactClient : IDisposable
 
     private JsonObject BuildFcam(
         string sellerName, string sellerAddress, JsonObject buyerNode,
-        IReadOnlyList<LineItem> items, InvoiceOptions opts, CancellationToken ct)
+        IReadOnlyList<LineItem> items, InvoiceOptions opts, string? tf, string? es)
     {
         if (opts.PaymentTerms is null or { Count: 0 })
             throw new DigifactValidationException("PaymentTerms is required for FCAM.");
         return DteBuilder.BuildFcam(_taxid, sellerName, sellerAddress, buyerNode, items,
-            opts.PaymentTerms, _afiliacionIva);
+            opts.PaymentTerms, _afiliacionIva, tipoFrase: tf, escenario: es);
     }
 
     /// <summary>Emit a CCA (Cobro por Cuenta Ajena) FACT + CCA complemento.</summary>
     public async Task<DteResult> CcaInvoiceAsync(
         BuyerDetails buyer, IReadOnlyList<LineItem> items, IReadOnlyList<CcaCobro> cobros,
+        string? tipoFrase = null, string? escenario = null,
         CancellationToken ct = default)
     {
         var (sellerName, sellerAddress) = await GetSellerInfoAsync(ct);
         var buyerNode = await ResolveBuyerAsync(buyer, ct);
-        var payload = DteBuilder.BuildCca(_taxid, sellerName, sellerAddress, buyerNode, items, cobros, _afiliacionIva);
+        var (tf, es) = ResolveFrase("FACT", tipoFrase, escenario);
+        var payload = DteBuilder.BuildCca(_taxid, sellerName, sellerAddress, buyerNode, items, cobros,
+            _afiliacionIva, tipoFrase: tf, escenario: es);
         var data = await CertifyAsync(payload, ct);
         return DteResult.FromJson(data);
     }
@@ -368,12 +391,15 @@ public sealed class DigifactClient : IDisposable
     /// </summary>
     public async Task<DteResult> FuelInvoiceAsync(
         BuyerDetails buyer, IReadOnlyList<FuelLineItem> items,
+        string? tipoFrase = null, string? escenario = null,
         CancellationToken ct = default)
     {
         var (sellerName, sellerAddress) = await GetSellerInfoAsync(ct);
         var buyerNode = await ResolveBuyerAsync(buyer, ct);
         var resolved = ApplyPetroleoRates(items);
-        var payload = DteBuilder.BuildFactCombustible(_taxid, sellerName, sellerAddress, buyerNode, resolved, _afiliacionIva);
+        var (tf, es) = ResolveFrase("FACT", tipoFrase, escenario);
+        var payload = DteBuilder.BuildFactCombustible(_taxid, sellerName, sellerAddress, buyerNode, resolved,
+            _afiliacionIva, tipoFrase: tf, escenario: es);
         var data = await CertifyAsync(payload, ct);
         return DteResult.FromJson(data);
     }
@@ -402,12 +428,14 @@ public sealed class DigifactClient : IDisposable
     /// <summary>Emit a NCRE (Nota de Crédito).</summary>
     public async Task<DteResult> CreditNoteAsync(
         BuyerDetails buyer, IReadOnlyList<LineItem> items, OriginDoc origin, string reason,
+        string? tipoFrase = null, string? escenario = null,
         CancellationToken ct = default)
     {
         var (sellerName, sellerAddress) = await GetSellerInfoAsync(ct);
         var buyerNode = await ResolveBuyerAsync(buyer, ct);
+        var (tf, es) = ResolveFrase("NCRE", tipoFrase, escenario);
         var payload = DteBuilder.BuildNcre(_taxid, sellerName, sellerAddress, buyerNode, items,
-            origin, reason, _afiliacionIva);
+            origin, reason, _afiliacionIva, tipoFrase: tf, escenario: es);
         var data = await CertifyAsync(payload, ct);
         return DteResult.FromJson(data);
     }
@@ -415,12 +443,14 @@ public sealed class DigifactClient : IDisposable
     /// <summary>Emit a NDEB (Nota de Débito).</summary>
     public async Task<DteResult> DebitNoteAsync(
         BuyerDetails buyer, IReadOnlyList<LineItem> items, OriginDoc origin, string reason,
+        string? tipoFrase = null, string? escenario = null,
         CancellationToken ct = default)
     {
         var (sellerName, sellerAddress) = await GetSellerInfoAsync(ct);
         var buyerNode = await ResolveBuyerAsync(buyer, ct);
+        var (tf, es) = ResolveFrase("NDEB", tipoFrase, escenario);
         var payload = DteBuilder.BuildNdeb(_taxid, sellerName, sellerAddress, buyerNode, items,
-            origin, reason, _afiliacionIva);
+            origin, reason, _afiliacionIva, tipoFrase: tf, escenario: es);
         var data = await CertifyAsync(payload, ct);
         return DteResult.FromJson(data);
     }

@@ -19,6 +19,8 @@ class DigifactClient
     private string $sellerAddress;
     private string $afiliacionIva;
     private string $tipoPersoneria;
+    private ?string $tipoFrase;
+    private ?string $escenario;
     private int $timeout;
     private array $nitCache = [];
     /** @var array<string,float> PETROLEO code → per-unit amount */
@@ -32,7 +34,8 @@ class DigifactClient
     /**
      * @param array $config Keys: taxid, username, password, environment, token,
      *                      seller_name, seller_address, afiliacion_iva,
-     *                      tipo_personeria, timeout, petroleo_rates
+     *                      tipo_personeria, tipo_frase, escenario, timeout,
+     *                      petroleo_rates
      */
     public function __construct(array $config)
     {
@@ -54,6 +57,8 @@ class DigifactClient
         $this->sellerAddress = $config['seller_address'] ?? '';
         $this->afiliacionIva = $config['afiliacion_iva'] ?? 'GEN';
         $this->tipoPersoneria = $config['tipo_personeria'] ?? '1';
+        $this->tipoFrase = isset($config['tipo_frase']) ? (string)$config['tipo_frase'] : null;
+        $this->escenario = isset($config['escenario']) ? (string)$config['escenario'] : null;
         $this->timeout = (int)($config['timeout'] ?? 120);
         $this->petroleoRates = $config['petroleo_rates'] ?? [];
 
@@ -345,12 +350,37 @@ class DigifactClient
     // ── Public DTE methods ────────────────────────────────────────────────────
 
     /**
+     * Resolve (TipoFrase, CodigoEscenario) with precedence:
+     *   1) $opts['tipo_frase'] / $opts['escenario'] (per-call override)
+     *   2) constructor globals (tipo_frase / escenario)
+     *   3) DteBuilder::defaultFrase($docType, afiliacion) table
+     *
+     * Returns [?string, ?string]. Either component can be null when the builder
+     * should omit frases entirely (e.g. FESP).
+     *
+     * @return array{0:?string,1:?string}
+     */
+    private function resolveFrase(string $docType, array $opts): array
+    {
+        $default = DteBuilder::defaultFrase($docType, $this->afiliacionIva);
+        [$defTf, $defEs] = $default ?? [null, null];
+
+        $tf = $opts['tipo_frase'] ?? $this->tipoFrase ?? $defTf;
+        $es = $opts['escenario']  ?? $this->escenario  ?? $defEs;
+
+        return [
+            $tf !== null ? (string)$tf : null,
+            $es !== null ? (string)$es : null,
+        ];
+    }
+
+    /**
      * Emit a DTE invoice.
      *
      * @param string|array $buyer  "CF", NIT string, CUI array, or buyer array
      * @param list<array>  $items  Item arrays with keys: description, qty, price, type
      * @param array        $opts   Options: doc_type, payment_terms, amount_str,
-     *                              observaciones, tipo_personeria
+     *                              observaciones, tipo_personeria, tipo_frase, escenario
      */
     public function invoice(string|array $buyer, array $items, array $opts = []): DteResult
     {
@@ -359,6 +389,7 @@ class DigifactClient
         $docType = $opts['doc_type'] ?? 'FACT';
         $amountStr = $opts['amount_str'] ?? '';
         $observaciones = $opts['observaciones'] ?? '-';
+        [$tipoFrase, $escenario] = $this->resolveFrase($docType, $opts);
 
         switch ($docType) {
             case 'FCAM':
@@ -368,7 +399,7 @@ class DigifactClient
                 }
                 $payload = DteBuilder::buildFcam(
                     $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items, $pt,
-                    $this->afiliacionIva
+                    $this->afiliacionIva, null, $tipoFrase, $escenario
                 );
                 break;
 
@@ -381,7 +412,7 @@ class DigifactClient
             case 'NABN':
                 $payload = DteBuilder::buildFact(
                     $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-                    'NABN', $this->afiliacionIva, '1', '1', $amountStr, $observaciones
+                    'NABN', $this->afiliacionIva, $tipoFrase, $escenario, $amountStr, $observaciones
                 );
                 break;
 
@@ -396,7 +427,7 @@ class DigifactClient
             case 'FPEQ':
                 $payload = DteBuilder::buildFpeq(
                     $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-                    $amountStr, $observaciones
+                    $amountStr, $observaciones, null, $tipoFrase, $escenario
                 );
                 break;
 
@@ -411,7 +442,7 @@ class DigifactClient
                 // FACT (default), handles CUI automatically via buyer type
                 $payload = DteBuilder::buildFact(
                     $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-                    $docType, $this->afiliacionIva, '1', '1', $amountStr, $observaciones
+                    $docType, $this->afiliacionIva, $tipoFrase, $escenario, $amountStr, $observaciones
                 );
                 break;
         }
@@ -422,13 +453,17 @@ class DigifactClient
 
     /**
      * Emit a CCA (Cobro por Cuenta Ajena) FACT+CCA complemento.
+     *
+     * @param array $opts Options: tipo_frase, escenario
      */
-    public function ccaInvoice(string|array $buyer, array $items, array $cobros): DteResult
+    public function ccaInvoice(string|array $buyer, array $items, array $cobros, array $opts = []): DteResult
     {
         [$sellerName, $sellerAddress] = $this->getSellerInfo();
         $buyerArr = $this->resolveBuyer($buyer);
+        [$tipoFrase, $escenario] = $this->resolveFrase('FACT', $opts);
         $payload = DteBuilder::buildCca(
-            $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items, $cobros, $this->afiliacionIva
+            $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items, $cobros, $this->afiliacionIva,
+            null, $tipoFrase, $escenario
         );
         $data = $this->certify($payload);
         return DteResult::fromArray($data);
@@ -442,14 +477,17 @@ class DigifactClient
      * Items without 'petroleo_amount' are treated as regular IVA-only items.
      *
      * @param array $items Each fuel item: description, qty, price, petroleo_amount, petroleo_code, type, unit_of_measure
+     * @param array $opts  Options: tipo_frase, escenario
      */
-    public function fuelInvoice(string|array $buyer, array $items): DteResult
+    public function fuelInvoice(string|array $buyer, array $items, array $opts = []): DteResult
     {
         [$sellerName, $sellerAddress] = $this->getSellerInfo();
         $buyerArr = $this->resolveBuyer($buyer);
         $resolved = $this->applyPetroleoRates($items);
+        [$tipoFrase, $escenario] = $this->resolveFrase('FACT', $opts);
         $payload = DteBuilder::buildFactCombustible(
-            $this->taxid, $sellerName, $sellerAddress, $buyerArr, $resolved, $this->afiliacionIva
+            $this->taxid, $sellerName, $sellerAddress, $buyerArr, $resolved, $this->afiliacionIva,
+            $tipoFrase, $escenario
         );
         $data = $this->certify($payload);
         return DteResult::fromArray($data);
@@ -482,14 +520,16 @@ class DigifactClient
      * Emit a NCRE (Nota de Crédito).
      *
      * @param array $origin ["auth_number" => ..., "date" => "YYYY-MM-DD", "series" => ..., "number" => ...]
+     * @param array $opts   Options: tipo_frase, escenario
      */
-    public function creditNote(string|array $buyer, array $items, array $origin, string $reason): DteResult
+    public function creditNote(string|array $buyer, array $items, array $origin, string $reason, array $opts = []): DteResult
     {
         [$sellerName, $sellerAddress] = $this->getSellerInfo();
         $buyerArr = $this->resolveBuyer($buyer);
+        [$tipoFrase, $escenario] = $this->resolveFrase('NCRE', $opts);
         $payload = DteBuilder::buildNcre(
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-            $origin, $reason, $this->afiliacionIva
+            $origin, $reason, $this->afiliacionIva, null, $tipoFrase, $escenario
         );
         $data = $this->certify($payload);
         return DteResult::fromArray($data);
@@ -499,14 +539,16 @@ class DigifactClient
      * Emit a NDEB (Nota de Débito).
      *
      * @param array $origin ["auth_number" => ..., "date" => "YYYY-MM-DD", "series" => ..., "number" => ...]
+     * @param array $opts   Options: tipo_frase, escenario
      */
-    public function debitNote(string|array $buyer, array $items, array $origin, string $reason): DteResult
+    public function debitNote(string|array $buyer, array $items, array $origin, string $reason, array $opts = []): DteResult
     {
         [$sellerName, $sellerAddress] = $this->getSellerInfo();
         $buyerArr = $this->resolveBuyer($buyer);
+        [$tipoFrase, $escenario] = $this->resolveFrase('NDEB', $opts);
         $payload = DteBuilder::buildNdeb(
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-            $origin, $reason, $this->afiliacionIva
+            $origin, $reason, $this->afiliacionIva, null, $tipoFrase, $escenario
         );
         $data = $this->certify($payload);
         return DteResult::fromArray($data);

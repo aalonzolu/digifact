@@ -20,6 +20,12 @@ public sealed class InvoiceOptions
 
     /// <summary>Override the client-level TipoPersoneria (used for RDON).</summary>
     public string? TipoPersoneria { get; init; }
+
+    /// <summary>Override TipoFrase for this call. Falls back to client-level override, then to defaults table.</summary>
+    public string? TipoFrase { get; init; }
+
+    /// <summary>Override CodigoEscenario for this call. Falls back to client-level override, then to defaults table.</summary>
+    public string? Escenario { get; init; }
 }
 
 /// <summary>A payment instalment for FCAM invoices.</summary>

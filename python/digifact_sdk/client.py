@@ -20,6 +20,7 @@ from .builder import (
     build_ndeb,
     build_rdon,
     build_reci,
+    default_frase,
     _build_buyer_cf,
     _build_buyer_nit,
     _build_buyer_cui,
@@ -102,6 +103,8 @@ class DigifactClient:
         seller_address: str = "",
         afiliacion_iva: str = "GEN",
         tipo_personeria: str = "1",
+        tipo_frase: str | None = None,
+        escenario: str | None = None,
         timeout: int = 120,
         session: requests.Session | None = None,
         petroleo_rates: dict[str, float] | None = None,
@@ -120,6 +123,8 @@ class DigifactClient:
         self.environment = environment
         self.afiliacion_iva = afiliacion_iva
         self.tipo_personeria = tipo_personeria
+        self.tipo_frase = tipo_frase
+        self.escenario = escenario
         self.timeout = timeout
 
         base = _BASE_URLS.get(environment)
@@ -274,6 +279,24 @@ class DigifactClient:
 
     # ── Public DTE methods ────────────────────────────────────────────────────
 
+    def _resolve_frase(
+        self,
+        doc_type: str,
+        tipo_frase: str | None,
+        escenario: str | None,
+    ) -> tuple[str | None, str | None]:
+        """Resolve (TipoFrase, CodigoEscenario) with precedence:
+
+        1. Per-call ``tipo_frase`` / ``escenario`` arguments.
+        2. Constructor-level globals.
+        3. ``default_frase(doc_type, afiliacion_iva)`` table.
+        """
+        defaults = default_frase(doc_type, self.afiliacion_iva)
+        def_tf, def_es = defaults if defaults else (None, None)
+        tf = tipo_frase if tipo_frase is not None else (self.tipo_frase if self.tipo_frase is not None else def_tf)
+        es = escenario if escenario is not None else (self.escenario if self.escenario is not None else def_es)
+        return tf, es
+
     def invoice(
         self,
         buyer: str | dict,
@@ -284,6 +307,8 @@ class DigifactClient:
         amount_str: str = "",
         observaciones: str = "-",
         tipo_personeria: str | None = None,
+        tipo_frase: str | None = None,
+        escenario: str | None = None,
     ) -> DteResult:
         """Emit a DTE invoice (FACT, FCAM, NABN, FESP, RDON, FPEQ, RECI, CCA).
 
@@ -306,6 +331,7 @@ class DigifactClient:
         """
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
+        tf, es = self._resolve_frase(doc_type, tipo_frase, escenario)
 
         if doc_type == "FCAM":
             if not payment_terms:
@@ -320,6 +346,8 @@ class DigifactClient:
                 afiliacion=self.afiliacion_iva,
                 amount_str=amount_str,
                 observaciones=observaciones,
+                tipo_frase=tf,
+                escenario=es,
             )
         elif doc_type == "FESP":
             payload = build_fesp(
@@ -363,6 +391,8 @@ class DigifactClient:
                 items,
                 amount_str=amount_str,
                 observaciones=observaciones,
+                tipo_frase=tf,
+                escenario=es,
             )
         elif doc_type == "RECI":
             payload = build_reci(
@@ -385,6 +415,8 @@ class DigifactClient:
                 items,
                 doc_type=doc_type,
                 afiliacion=self.afiliacion_iva,
+                tipo_frase=tf,
+                escenario=es,
                 amount_str=amount_str,
                 observaciones=observaciones,
             )
@@ -397,10 +429,14 @@ class DigifactClient:
         buyer: str | dict,
         items: list[dict],
         cobros: list[dict],
+        *,
+        tipo_frase: str | None = None,
+        escenario: str | None = None,
     ) -> DteResult:
         """Emit a CCA (Cobro por Cuenta Ajena) FACT+CCA complemento."""
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
+        tf, es = self._resolve_frase("FACT", tipo_frase, escenario)
         payload = build_cca(
             self.taxid,
             seller_name,
@@ -409,6 +445,8 @@ class DigifactClient:
             items,
             cobros,
             afiliacion=self.afiliacion_iva,
+            tipo_frase=tf,
+            escenario=es,
         )
         data = self._certify(payload)
         return self._parse_result(data)
@@ -417,6 +455,9 @@ class DigifactClient:
         self,
         buyer: str | dict,
         items: list[dict],
+        *,
+        tipo_frase: str | None = None,
+        escenario: str | None = None,
     ) -> DteResult:
         """Emit a combustible (fuel) FACT invoice.
 
@@ -445,6 +486,7 @@ class DigifactClient:
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
         resolved = self._apply_petroleo_rates(items)
+        tf, es = self._resolve_frase("FACT", tipo_frase, escenario)
         payload = build_fact_combustible(
             self.taxid,
             seller_name,
@@ -452,6 +494,8 @@ class DigifactClient:
             buyer_dict,
             resolved,
             afiliacion=self.afiliacion_iva,
+            tipo_frase=tf,
+            escenario=es,
         )
         data = self._certify(payload)
         return self._parse_result(data)
@@ -482,6 +526,9 @@ class DigifactClient:
         items: list[dict],
         origin: dict,
         reason: str,
+        *,
+        tipo_frase: str | None = None,
+        escenario: str | None = None,
     ) -> DteResult:
         """Emit a NCRE (Nota de Crédito).
 
@@ -494,6 +541,7 @@ class DigifactClient:
         """
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
+        tf, es = self._resolve_frase("NCRE", tipo_frase, escenario)
         payload = build_ncre(
             self.taxid,
             seller_name,
@@ -503,6 +551,8 @@ class DigifactClient:
             origin,
             reason,
             afiliacion=self.afiliacion_iva,
+            tipo_frase=tf,
+            escenario=es,
         )
         data = self._certify(payload)
         return self._parse_result(data)
@@ -513,6 +563,9 @@ class DigifactClient:
         items: list[dict],
         origin: dict,
         reason: str,
+        *,
+        tipo_frase: str | None = None,
+        escenario: str | None = None,
     ) -> DteResult:
         """Emit a NDEB (Nota de Débito).
 
@@ -525,6 +578,7 @@ class DigifactClient:
         """
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
+        tf, es = self._resolve_frase("NDEB", tipo_frase, escenario)
         payload = build_ndeb(
             self.taxid,
             seller_name,
@@ -534,6 +588,8 @@ class DigifactClient:
             origin,
             reason,
             afiliacion=self.afiliacion_iva,
+            tipo_frase=tf,
+            escenario=es,
         )
         data = self._certify(payload)
         return self._parse_result(data)
