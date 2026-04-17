@@ -36,7 +36,7 @@ from .tax import gt_now, pad_taxid
 
 _BASE_URLS = {
     "test": "https://testnucgt.digifact.com/api",
-    "production": "https://nucgt.digifact.com/api",
+    "production": "https://nucgt.digifact.com/gt.com.apinuc/api",
 }
 
 

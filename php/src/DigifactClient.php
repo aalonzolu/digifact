@@ -26,7 +26,7 @@ class DigifactClient
 
     private const BASE_URLS = [
         'test'       => 'https://testnucgt.digifact.com/api',
-        'production' => 'https://nucgt.digifact.com/api',
+        'production' => 'https://nucgt.digifact.com/gt.com.apinuc/api',
     ];
 
     /**
@@ -36,6 +36,14 @@ class DigifactClient
      */
     public function __construct(array $config)
     {
+        if (!extension_loaded('bcmath')) {
+            throw new \RuntimeException(
+                "The bcmath PHP extension is required by digifact-sdk but is not installed. " .
+                "Install it with: apt-get install php-bcmath  OR  pecl install bcmath  " .
+                "and enable it in your php.ini (extension=bcmath)."
+            );
+        }
+
         $taxid = $config['taxid'] ?? '';
         $this->taxid = preg_replace('/\D/', '', $taxid);
         $this->paddedTaxid = TaxHelper::padTaxid($taxid);

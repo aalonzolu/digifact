@@ -29,7 +29,7 @@ public sealed class DigifactClient : IDisposable
     private static readonly Dictionary<string, string> BaseUrls = new(StringComparer.OrdinalIgnoreCase)
     {
         ["test"]       = "https://testnucgt.digifact.com/api",
-        ["production"] = "https://nucgt.digifact.com/api",
+        ["production"] = "https://nucgt.digifact.com/gt.com.apinuc/api",
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new()

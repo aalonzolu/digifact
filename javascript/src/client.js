@@ -32,7 +32,7 @@ import {
 
 const BASE_URLS = {
   test: 'https://testnucgt.digifact.com/api',
-  production: 'https://nucgt.digifact.com/api',
+  production: 'https://nucgt.digifact.com/gt.com.apinuc/api',
 };
 
 // ── DteResult ─────────────────────────────────────────────────────────────────

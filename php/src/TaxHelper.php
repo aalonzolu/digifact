@@ -56,8 +56,8 @@ class TaxHelper
     public static function calcIva(string $lineTotal): array
     {
         // taxable = lineTotal * 100 / 112
-        $taxable = bcdiv(bcmul($lineTotal, '100', self::SCALE), '112', self::SCALE);
-        $iva = bcsub($lineTotal, $taxable, self::SCALE);
+        $taxable = \bcdiv(\bcmul($lineTotal, '100', self::SCALE), '112', self::SCALE);
+        $iva = \bcsub($lineTotal, $taxable, self::SCALE);
 
         return [
             self::roundHalfUp($taxable, self::OUTPUT_SCALE),
@@ -73,10 +73,10 @@ class TaxHelper
         // Standard bcmath half-up: add 0.5 at the target scale then truncate via bcmath.
         // Avoids float conversion, which can corrupt values like 100.0000005.
         $half = '0.' . str_repeat('0', $scale) . '5';
-        if (bccomp($value, '0', $scale + 1) < 0) {
-            return bcsub($value, $half, $scale);
+        if (\bccomp($value, '0', $scale + 1) < 0) {
+            return \bcsub($value, $half, $scale);
         }
-        return bcadd($value, $half, $scale);
+        return \bcadd($value, $half, $scale);
     }
 
     /**
@@ -94,8 +94,8 @@ class TaxHelper
         bool $taxable = true,
         string $discount = '0'
     ): array {
-        $gross = bcmul($qty, $unitPrice, self::SCALE);
-        $lineTotal = bcsub($gross, $discount, self::SCALE);
+        $gross = \bcmul($qty, $unitPrice, self::SCALE);
+        $lineTotal = \bcsub($gross, $discount, self::SCALE);
 
         if ($taxable) {
             [$taxableAmt, $ivaAmt] = self::calcIva($lineTotal);
@@ -132,10 +132,10 @@ class TaxHelper
         string $unitPrice,
         string $petrolAmountPerUnit
     ): array {
-        $netPrice    = bcsub($unitPrice, $petrolAmountPerUnit, self::SCALE);
-        $gross       = bcmul($qty, $netPrice, self::SCALE);
-        $petrolTotal = bcmul($qty, $petrolAmountPerUnit, self::SCALE);
-        $lineTotal   = bcmul($qty, $unitPrice, self::SCALE);
+        $netPrice    = \bcsub($unitPrice, $petrolAmountPerUnit, self::SCALE);
+        $gross       = \bcmul($qty, $netPrice, self::SCALE);
+        $petrolTotal = \bcmul($qty, $petrolAmountPerUnit, self::SCALE);
+        $lineTotal   = \bcmul($qty, $unitPrice, self::SCALE);
 
         [$taxableAmt, $ivaAmt] = self::calcIva($gross);
 

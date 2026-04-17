@@ -191,8 +191,8 @@ class DteBuilder
             $built['Totals'] = ['TotalItem' => $calc['lineTotal']];
 
             $builtItems[] = $built;
-            $grandTotal = bcadd($grandTotal, $calc['lineTotal'], 10);
-            $totalIva   = bcadd($totalIva, $calc['iva'], 10);
+            $grandTotal = \bcadd($grandTotal, $calc['lineTotal'], 10);
+            $totalIva   = \bcadd($totalIva, $calc['iva'], 10);
         }
 
         return [
@@ -477,11 +477,11 @@ class DteBuilder
         $totalTaxable = '0';
         foreach ($lineItems as $item) {
             $taxableAmt = $item['Taxes']['Tax'][0]['TaxableAmount'] ?? '0';
-            $totalTaxable = bcadd($totalTaxable, $taxableAmt, 10);
+            $totalTaxable = \bcadd($totalTaxable, $taxableAmt, 10);
         }
-        $retencionIsr = TaxHelper::fmt(bcmul($totalTaxable, '0.05', 10));
+        $retencionIsr = TaxHelper::fmt(\bcmul($totalTaxable, '0.05', 10));
         $retencionIva = $totalIva;
-        $totalMenos = TaxHelper::fmt(bcsub(bcsub($grandTotal, $retencionIsr, 10), $retencionIva, 10));
+        $totalMenos = TaxHelper::fmt(\bcsub(\bcsub($grandTotal, $retencionIsr, 10), $retencionIva, 10));
 
         return [
             'Version'     => '1.00',
@@ -746,9 +746,9 @@ class DteBuilder
                 ];
                 $built['Totals'] = ['TotalItem' => $calc['lineTotal']];
 
-                $grandTotal    = bcadd($grandTotal, $calc['lineTotal'], 10);
-                $totalIva      = bcadd($totalIva, $calc['iva'], 10);
-                $totalPetroleo = bcadd($totalPetroleo, $calc['petrol'], 10);
+                $grandTotal    = \bcadd($grandTotal, $calc['lineTotal'], 10);
+                $totalIva      = \bcadd($totalIva, $calc['iva'], 10);
+                $totalPetroleo = \bcadd($totalPetroleo, $calc['petrol'], 10);
             } else {
                 $calc = TaxHelper::calcLine($qty, $price, true);
 
@@ -764,8 +764,8 @@ class DteBuilder
                 ];
                 $built['Totals'] = ['TotalItem' => $calc['lineTotal']];
 
-                $grandTotal = bcadd($grandTotal, $calc['lineTotal'], 10);
-                $totalIva   = bcadd($totalIva, $calc['iva'], 10);
+                $grandTotal = \bcadd($grandTotal, $calc['lineTotal'], 10);
+                $totalIva   = \bcadd($totalIva, $calc['iva'], 10);
             }
 
             $builtItems[] = $built;
