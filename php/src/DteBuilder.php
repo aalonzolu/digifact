@@ -56,10 +56,11 @@ class DteBuilder
                 if ($afi === 'EXE') {
                     return ['4', '1'];
                 }
-                // GEN (IVA General). Escenario 2 = ISR OPC (régimen opcional
-                // simplificado sobre ingresos), el más común. Para ISR TRIM
-                // (sobre utilidades) se debe sobreescribir escenario a '1'.
-                return ['1', '2'];
+                // GEN (IVA General). Por defecto asumimos ISR régimen sobre
+                // utilidades trimestrales (UTI) -> CodigoEscenario '1', que es
+                // el régimen ISR por defecto en SAT. Para ISR régimen opcional
+                // simplificado (OPC) se debe sobreescribir escenario a '2'.
+                return ['1', '1'];
         }
     }
 

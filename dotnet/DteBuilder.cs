@@ -32,8 +32,9 @@ internal static class DteBuilder
     /// Returns null when the DTE must not carry an AdditionlInfo block (e.g. FESP).
     /// </summary>
     /// <remarks>
-    /// GEN defaults assume ISR régimen opcional (CodigoEscenario "2"). For ISR
-    /// régimen sobre utilidades trimestrales, override Escenario to "1".
+    /// GEN defaults assume ISR régimen sobre utilidades trimestrales
+    /// (CodigoEscenario "1"), which is the default ISR régimen in SAT. For
+    /// ISR régimen opcional simplificado (OPC), override Escenario to "2".
     /// </remarks>
     public static (string TipoFrase, string Escenario)? DefaultFrase(string docType, string afiliacion = "GEN")
     {
@@ -50,7 +51,7 @@ internal static class DteBuilder
             {
                 "PEQ" => ("2", "1"),
                 "EXE" => ("4", "1"),
-                _     => ("1", "2"), // GEN — ISR opcional (most common). Override to "1" for ISR trimestral.
+                _     => ("1", "1"), // GEN — ISR sobre utilidades (default). Override Escenario to "2" for ISR opcional simplificado.
             },
         };
     }

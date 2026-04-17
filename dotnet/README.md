@@ -171,7 +171,7 @@ configurar nada en el caso común.
 | RDON        | cualquiera | `4`       | `4`             | Donaciones |
 | RECI        | cualquiera | `4`       | `5`             | Recibos (universidades) |
 | NABN        | cualquiera | `1`       | `1`             | Abonos |
-| FACT / FCAM / NCRE / NDEB | **GEN** | `1` | `2` | Por defecto: ISR **régimen opcional** |
+| FACT / FCAM / NCRE / NDEB | **GEN** | `1` | `1` | Por defecto: ISR **régimen sobre utilidades trimestrales** |
 | FACT / FCAM / NCRE / NDEB | PEQ | `2` | `1` | |
 | FACT / FCAM / NCRE / NDEB | EXE | `4` | `1` | Exento |
 
@@ -191,12 +191,12 @@ await client.InvoiceAsync(buyer, items, new InvoiceOptions {
 await client.CreditNoteAsync(buyer, items, origin, "...", tipoFrase: "2", escenario: "1");
 await client.FuelInvoiceAsync(buyer, items, tipoFrase: "2", escenario: "1");
 
-// O globalmente al construir el cliente (p. ej. GEN + ISR sobre utilidades trimestrales)
+// O globalmente al construir el cliente (p. ej. GEN + ISR régimen opcional simplificado)
 var client = new DigifactClient(new DigifactOptions {
     Taxid = "12345678", Username = "FELUSER", Password = "...",
     AfiliacionIva = "GEN",
     TipoFrase = "1", // opcional — la tabla ya devuelve "1" para GEN
-    Escenario = "1", // ISR sobre utilidades trimestrales (sobreescribe el "2" por defecto)
+    Escenario = "2", // ISR régimen opcional simplificado (sobreescribe el "1" por defecto)
 });
 ```
 

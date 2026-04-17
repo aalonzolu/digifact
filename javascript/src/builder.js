@@ -37,8 +37,9 @@ export function defaultFrase(docType, afiliacion = 'GEN') {
   // FACT, NCRE, NDEB, FCAM, FACT+CCA, FACT+combustible
   if (afi === 'PEQ') return ['2', '1'];
   if (afi === 'EXE') return ['4', '1'];
-  // GEN — Escenario 2 = ISR OPC (most common). Override to '1' for ISR TRIM.
-  return ['1', '2'];
+  // GEN — default ISR régimen sobre utilidades trimestrales (UTI) -> '1'.
+  // Override to '2' for ISR régimen opcional simplificado (OPC).
+  return ['1', '1'];
 }
 
 function resolveFrase(docType, afiliacion, tipoFrase, escenario) {
