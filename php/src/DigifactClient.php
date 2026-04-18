@@ -21,6 +21,8 @@ class DigifactClient
     private string $tipoPersoneria;
     private ?string $tipoFrase;
     private ?string $escenario;
+    private string $branchCode;
+    private string $branchName;
     private int $timeout;
     private array $nitCache = [];
     /** @var array<string,float> PETROLEO code → per-unit amount */
@@ -32,10 +34,52 @@ class DigifactClient
     ];
 
     /**
-     * @param array $config Keys: taxid, username, password, environment, token,
-     *                      seller_name, seller_address, afiliacion_iva,
-     *                      tipo_personeria, tipo_frase, escenario, timeout,
-     *                      petroleo_rates
+     * @param array $config Configuration keys (all except taxid/username/password are optional):
+     *
+     *   Authentication
+     *   --------------
+     *   - taxid (string, required): Fiscal ID / NIT of the issuer. Digits only or
+     *       with separators (e.g. "12345678" or "1234567-8"); non-digits are stripped.
+     *   - username (string, required): Short Digifact username (the part after the
+     *       "GT.<NIT>." prefix, e.g. "FELUSER").
+     *   - password (string): Account password. Required unless `token` is supplied.
+     *   - token (string): Pre-obtained Bearer token. When provided, login is skipped
+     *       and `password` is not needed.
+     *   - environment (string): "test" (default) or "production".
+     *
+     *   Seller / RTU information
+     *   ------------------------
+     *   - seller_name (string): Overrides the issuer display name. When empty, the
+     *       SDK resolves it from SAT via `lookupNit($taxid)`.
+     *   - seller_address (string): Overrides the issuer address. When empty, the
+     *       SDK resolves it from SAT via `lookupNit($taxid)`.
+     *   - afiliacion_iva (string): IVA affiliation recorded in SAT RTU.
+     *       One of "GEN" (default), "PEQ" (Pequeño Contribuyente) or "EXE" (Exento).
+     *   - tipo_personeria (string): TipoPersoneria code from RTU (used by RDON).
+     *       Default "1".
+     *   - branch_code (string): Código del establecimiento (SAT RTU). Each NIT may
+     *       have several establecimientos (1, 2, 3, …); "1" is usually the principal.
+     *       Default "1".
+     *   - branch_name (string): Nombre comercial del establecimiento.
+     *       Default "ESTABLECIMIENTO PRINCIPAL".
+     *
+     *   Frase / escenario (SAT AdditionlInfo)
+     *   -------------------------------------
+     *   - tipo_frase (string|null): Global override for TipoFrase. When null
+     *       (default), the SDK uses {@see DteBuilder::defaultFrase()} based on
+     *       DocType + afiliacion_iva. Can be overridden per-call.
+     *   - escenario (string|null): Global override for CodigoEscenario. When null
+     *       (default), uses the defaults table. For GEN, common values are
+     *       "1" (ISR régimen sobre utilidades, default) or "2" (ISR opcional
+     *       simplificado sobre ingresos).
+     *
+     *   Misc
+     *   ----
+     *   - timeout (int): HTTP request timeout in seconds. Default 120.
+     *   - petroleo_rates (array<string,float>): Map of PETROLEO code → per-unit tax
+     *       amount, e.g. ["1" => 4.70, "2" => 4.60, "4" => 1.30]
+     *       (SUPER / REGULAR / DIESEL). Used by {@see fuelInvoice()} when items
+     *       provide `petroleo_code` but omit `petroleo_amount`.
      */
     public function __construct(array $config)
     {
@@ -59,6 +103,8 @@ class DigifactClient
         $this->tipoPersoneria = $config['tipo_personeria'] ?? '1';
         $this->tipoFrase = isset($config['tipo_frase']) ? (string)$config['tipo_frase'] : null;
         $this->escenario = isset($config['escenario']) ? (string)$config['escenario'] : null;
+        $this->branchCode = (string)($config['branch_code'] ?? '1');
+        $this->branchName = (string)($config['branch_name'] ?? 'ESTABLECIMIENTO PRINCIPAL');
         $this->timeout = (int)($config['timeout'] ?? 120);
         $this->petroleoRates = $config['petroleo_rates'] ?? [];
 
@@ -264,8 +310,23 @@ class DigifactClient
 
     // ── Certify ───────────────────────────────────────────────────────────────
 
+    /**
+     * Apply configured branch_code / branch_name onto Seller.BranchInfo.
+     * Called on every payload just before certification so that callers do not
+     * need to plumb branch info through every builder.
+     */
+    private function applyBranchInfo(array $payload): array
+    {
+        if (isset($payload['Seller']['BranchInfo'])) {
+            $payload['Seller']['BranchInfo']['Code'] = $this->branchCode;
+            $payload['Seller']['BranchInfo']['Name'] = $this->branchName;
+        }
+        return $payload;
+    }
+
     private function certify(array $payload): array
     {
+        $payload = $this->applyBranchInfo($payload);
         $data = $this->post('/v2/transform/nuc_json', $payload, true, [
             'TAXID'    => $this->paddedTaxid,
             'FORMAT'   => 'XML|HTML|PDF',

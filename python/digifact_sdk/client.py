@@ -61,30 +61,52 @@ class DigifactClient:
 
     Parameters
     ----------
-    taxid:
-        Fiscal ID of the issuer (digits only; will be padded to 12 chars).
-    username:
-        Short username, e.g. "FELUSER".
-    password:
-        Account password. Either password or token must be provided.
-    environment:
-        "test" (default) or "production".
-    token:
-        Pre-obtained bearer token. If provided, login is skipped.
-    seller_name:
-        Override the seller name (default: fetched from SAT NIT lookup).
-    seller_address:
-        Override the seller address.
-    afiliacion_iva:
-        IVA affiliation code ("GEN", "PEQ", "EXE"). Default "GEN".
-    tipo_personeria:
-        Required for RDON; e.g. "719".
-    timeout:
-        HTTP request timeout in seconds (default 120).
-    session:
-        Optional ``requests.Session`` to use (useful for testing / mocking).
-    petroleo_rates:
-        Optional mapping of PETROLEO code → per-unit tax amount, e.g.
+    taxid : str
+        Fiscal ID / NIT of the issuer. Digits only or with separators
+        (e.g. ``"12345678"`` or ``"1234567-8"``); non-digits are stripped.
+        Internally padded to 12 chars.
+    username : str
+        Short Digifact username (the part after the ``GT.<NIT>.`` prefix,
+        e.g. ``"FELUSER"``).
+    password : str, optional
+        Account password. Required unless ``token`` is supplied.
+    environment : {"test", "production"}, default "test"
+        Target environment.
+    token : str, optional
+        Pre-obtained bearer token. If provided, login is skipped and
+        ``password`` is not needed.
+    seller_name : str, optional
+        Overrides the issuer display name. When empty, the SDK resolves it
+        from SAT via :meth:`lookup_nit`.
+    seller_address : str, optional
+        Overrides the issuer address. When empty, the SDK resolves it from
+        SAT via :meth:`lookup_nit`.
+    afiliacion_iva : {"GEN", "PEQ", "EXE"}, default "GEN"
+        IVA affiliation recorded in SAT RTU. "PEQ" = Pequeño Contribuyente,
+        "EXE" = Exento.
+    tipo_personeria : str, default "1"
+        ``TipoPersoneria`` code from the RTU (used by RDON).
+    tipo_frase : str, optional
+        Global override for ``TipoFrase`` (SAT ``AdditionlInfo``). When
+        ``None`` (default), the SDK uses :func:`default_frase` based on
+        DocType + afiliación. Can be overridden per-call.
+    escenario : str, optional
+        Global override for ``CodigoEscenario``. When ``None`` (default),
+        uses the defaults table. For GEN, common values are ``"1"`` (ISR
+        régimen sobre utilidades, default) or ``"2"`` (ISR opcional
+        simplificado sobre ingresos).
+    branch_code : str, default "1"
+        Código del establecimiento (SAT RTU). Each NIT may have several
+        establecimientos (1, 2, 3, …); ``"1"`` is usually the principal.
+    branch_name : str, default "ESTABLECIMIENTO PRINCIPAL"
+        Nombre comercial del establecimiento.
+    timeout : int, default 120
+        HTTP request timeout in seconds.
+    session : requests.Session, optional
+        Optional :class:`requests.Session` to use (useful for testing or
+        connection pooling).
+    petroleo_rates : dict[str, float], optional
+        Mapping of PETROLEO code → per-unit tax amount, e.g.
         ``{"1": 4.70, "2": 4.60, "4": 1.30}`` (SUPER/REGULAR/DIESEL).
         When set, fuel items in :meth:`fuel_invoice` that provide
         ``petroleo_code`` but omit ``petroleo_amount`` will have the amount
@@ -105,6 +127,8 @@ class DigifactClient:
         tipo_personeria: str = "1",
         tipo_frase: str | None = None,
         escenario: str | None = None,
+        branch_code: str = "1",
+        branch_name: str = "ESTABLECIMIENTO PRINCIPAL",
         timeout: int = 120,
         session: requests.Session | None = None,
         petroleo_rates: dict[str, float] | None = None,
@@ -125,6 +149,8 @@ class DigifactClient:
         self.tipo_personeria = tipo_personeria
         self.tipo_frase = tipo_frase
         self.escenario = escenario
+        self.branch_code = branch_code
+        self.branch_name = branch_name
         self.timeout = timeout
 
         base = _BASE_URLS.get(environment)
@@ -244,7 +270,19 @@ class DigifactClient:
 
     # ── Raw API calls ─────────────────────────────────────────────────────────
 
+    def _apply_branch_info(self, payload: dict) -> dict:
+        """Overlay configured ``branch_code`` / ``branch_name`` onto the
+        ``Seller.BranchInfo`` block so callers don't have to plumb it through
+        every builder.
+        """
+        branch = payload.get("Seller", {}).get("BranchInfo")
+        if isinstance(branch, dict):
+            branch["Code"] = self.branch_code
+            branch["Name"] = self.branch_name
+        return payload
+
     def _certify(self, payload: dict) -> dict:
+        payload = self._apply_branch_info(payload)
         resp = self._session.post(
             f"{self.base_url}/v2/transform/nuc_json",
             params={

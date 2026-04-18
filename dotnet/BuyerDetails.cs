@@ -60,12 +60,20 @@ public sealed class BuyerDetails
     internal bool IsCui { get; private init; }
     internal bool NeedsLookup => !IsConsumidorFinal && !IsCui && Name is null;
 
+    /// <summary>NIT or CUI of the buyer (<see langword="null"/> for consumidor final).</summary>
     public string? Nit { get; private init; }
+    /// <summary>Buyer display name. <see langword="null"/> triggers auto-lookup on NIT buyers.</summary>
     public string? Name { get; private init; }
+    /// <summary>Street address. Defaults to <c>"CIUDAD"</c>.</summary>
     public string? Address { get; private init; } = "CIUDAD";
+    /// <summary>SAT city code. Defaults to <c>"01010"</c>.</summary>
     public string? City { get; private init; } = "01010";
+    /// <summary>Municipio. Defaults to <c>"GUATEMALA"</c>.</summary>
     public string? District { get; private init; } = "GUATEMALA";
+    /// <summary>Departamento. Defaults to <c>"GUATEMALA"</c>.</summary>
     public string? State { get; private init; } = "GUATEMALA";
+    /// <summary>ISO country code. Defaults to <c>"GT"</c>.</summary>
     public string Country { get; private init; } = "GT";
+    /// <summary>Optional buyer email address (added to <c>Contact.EmailList</c>).</summary>
     public string? Email { get; private init; }
 }

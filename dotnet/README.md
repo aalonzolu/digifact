@@ -149,6 +149,8 @@ var fuel2 = await client.FuelInvoiceAsync(
 | `SellerAddress` | `string` | `""` | Dirección del emisor (se consulta si está vacía) |
 | `AfiliacionIva` | `string` | `"GEN"` | `"GEN"`, `"PEQ"` o `"EXE"` |
 | `TipoPersoneria` | `string` | `"1"` | Código de personería del RTU de SAT |
+| `BranchCode` | `string` | `"1"` | **Código del establecimiento** del RTU. Se escribe en `Seller.BranchInfo.Code`. |
+| `BranchName` | `string` | `"ESTABLECIMIENTO PRINCIPAL"` | Nombre comercial del establecimiento. Se escribe en `Seller.BranchInfo.Name`. |
 | `TipoFrase` | `string?` | `null` | Sobreescritura global de `TipoFrase`; ver abajo |
 | `Escenario` | `string?` | `null` | Sobreescritura global de `CodigoEscenario`; ver abajo |
 | `Timeout` | `TimeSpan` | 120s | Timeout de la solicitud HTTP |
@@ -198,6 +200,79 @@ var client = new DigifactClient(new DigifactOptions {
     TipoFrase = "1", // opcional — la tabla ya devuelve "1" para GEN
     Escenario = "2", // ISR régimen opcional simplificado (sobreescribe el "1" por defecto)
 });
+```
+
+## Referencia de métodos
+
+Todos los métodos de emisión son `async`. Devuelven `DteResult` con `.AuthNumber`, `.Series`, `.Number`, `.IssueDateTime`, `.Raw`.
+
+| Método | Firma | Descripción |
+|--------|-------|-------------|
+| `InvoiceAsync()` | `InvoiceAsync(BuyerDetails buyer, IEnumerable<LineItem> items, InvoiceOptions? opts = null, CancellationToken ct = default)` | Emite FACT, FCAM, FESP, FPEQ, NABN, RDON o RECI según `opts.DocType`. |
+| `CcaInvoiceAsync()` | `CcaInvoiceAsync(BuyerDetails buyer, IEnumerable<LineItem> items, IEnumerable<CcaCobro> cobros, string? tipoFrase = null, string? escenario = null, ...)` | FACT con complemento CCA. |
+| `FuelInvoiceAsync()` | `FuelInvoiceAsync(BuyerDetails buyer, IEnumerable<FuelLineItem> items, string? tipoFrase = null, string? escenario = null, ...)` | FACT con complemento combustible. |
+| `CreditNoteAsync()` | `CreditNoteAsync(BuyerDetails buyer, IEnumerable<LineItem> items, OriginDoc origin, string reason, string? tipoFrase = null, string? escenario = null, ...)` | Nota de crédito (NCRE). |
+| `DebitNoteAsync()` | `DebitNoteAsync(BuyerDetails buyer, IEnumerable<LineItem> items, OriginDoc origin, string reason, string? tipoFrase = null, string? escenario = null, ...)` | Nota de débito (NDEB). |
+| `CreditNoteTotalAsync()` | `CreditNoteTotalAsync(string authNumber, string issueDateTime, string reason = "...", string reference = "", ...)` | Nota de crédito total. Devuelve `JsonElement`. |
+| `CancelAsync()` | `CancelAsync(string authNumber, string receiverId, string issueDateTime, string reason = "Anulación", ...)` | Anula un DTE. Devuelve `JsonElement`. |
+| `LookupNitAsync()` | `LookupNitAsync(string nit, CancellationToken ct = default)` | Consulta SAT. Devuelve `NitInfo`. |
+| `GetDteAsync()` | `GetDteAsync(string authNumber, string format = "JSON", ...)` | Recupera el DTE. |
+| `GetDteInfoAsync()` | `GetDteInfoAsync(string authNumber, ...)` | Metadatos del DTE. |
+
+### Parámetros comunes
+
+- **`BuyerDetails`**: construye con `BuyerDetails.Cf()`, `BuyerDetails.FromNit(nit, name, address, city, ...)`, o `BuyerDetails.FromCui(cui, name)`. Si pasas sólo `"CF"` o un string de NIT a `InvoiceAsync`, hay sobrecargas para evitar construir el objeto manualmente.
+- **`LineItem`**: `Description` (req), `Price` (req), `Qty` (1), `Type` (`"Servicio"`/`"Bien"`), `UnitOfMeasure` (`"UNI"`), `Discount` (opcional).
+- **`InvoiceOptions`**: `DocType`, `PaymentTerms` (req. para FCAM), `AmountStr`, `Observaciones`, `TipoPersoneria`, `TipoFrase`, `Escenario`.
+- **`OriginDoc`** (NCRE/NDEB): `record (string AuthNumber, string Date, string Series, string Number)`.
+
+## Establecimiento (sucursal)
+
+Cada NIT puede tener varios establecimientos registrados en el RTU. Configúralos en `DigifactOptions`:
+
+```csharp
+using var client = new DigifactClient(new DigifactOptions
+{
+    Taxid      = "12345678",
+    Username   = "FELUSER",
+    Password   = "secret",
+    BranchCode = "2",
+    BranchName = "SUCURSAL ZONA 10",
+});
+```
+
+Aplican a todos los DTE emitidos por ese cliente. Si se omiten, se usan los defaults `"1"` / `"ESTABLECIMIENTO PRINCIPAL"`.
+
+## Manejo de errores
+
+```csharp
+using Digifact.Fel;
+
+try
+{
+    var result = await client.InvoiceAsync("CF", items);
+}
+catch (DigifactValidationException ex)   // rechazo de SAT
+{
+    Console.WriteLine($"SAT rechazó (code={ex.Code}): {ex.Message}");
+    Console.WriteLine(ex.Raw);
+}
+catch (DigifactAuthException ex)          // fallo de autenticación
+{
+    Console.WriteLine($"Auth: {ex.Message}");
+}
+catch (DigifactNitNotFoundException)      // NIT no encontrado
+{
+    // ...
+}
+catch (DigifactApiException ex)           // error HTTP / de API
+{
+    Console.WriteLine($"API: {ex.Message}");
+}
+catch (DigifactException ex)              // base
+{
+    Console.WriteLine($"Error del SDK: {ex.Message}");
+}
 ```
 
 ## Ejecutar las pruebas

@@ -14,6 +14,27 @@ O desde el código fuente:
 pip install -e sdk/python/
 ```
 
+## Configuración del cliente (`DigifactClient(...)`)
+
+| Parámetro | Tipo | Por defecto | Descripción |
+|-----------|------|-------------|-------------|
+| `taxid` | `str` | **requerido** | NIT del emisor. Acepta dígitos o con separadores (`"12345678"`, `"1234567-8"`); los no-dígitos se eliminan. Se rellena internamente a 12 caracteres. |
+| `username` | `str` | **requerido** | Usuario corto de Digifact (la parte después de `GT.<NIT>.`, p. ej. `"FELUSER"`). |
+| `password` | `str` | `""` | Contraseña de la cuenta. **Requerido** si no se provee `token`. |
+| `environment` | `str` | `"test"` | `"test"` o `"production"`. |
+| `token` | `str` | `""` | Bearer token preobtenido. Si se provee, se omite el login. |
+| `seller_name` | `str` | `""` | Nombre comercial del emisor. Si está vacío, se consulta en SAT vía `lookup_nit()`. |
+| `seller_address` | `str` | `""` | Dirección del emisor. Si está vacía, se consulta en SAT. |
+| `afiliacion_iva` | `str` | `"GEN"` | Afiliación IVA del RTU: `"GEN"`, `"PEQ"` o `"EXE"`. |
+| `tipo_personeria` | `str` | `"1"` | Código de `TipoPersoneria` del RTU (usado en RDON). |
+| `branch_code` | `str` | `"1"` | **Código del establecimiento** del RTU. Un NIT puede tener varios establecimientos (1, 2, 3…). Se escribe en `Seller.BranchInfo.Code`. |
+| `branch_name` | `str` | `"ESTABLECIMIENTO PRINCIPAL"` | Nombre comercial del establecimiento. Se escribe en `Seller.BranchInfo.Name`. |
+| `tipo_frase` | `str \| None` | `None` | Sobreescritura global de `TipoFrase`. Ver [frases](#configuración-de-frases-tipofrase--codigoescenario). |
+| `escenario` | `str \| None` | `None` | Sobreescritura global de `CodigoEscenario`. |
+| `timeout` | `int` | `120` | Timeout HTTP en segundos. |
+| `session` | `requests.Session \| None` | `None` | Sesión HTTP personalizada (útil para tests). |
+| `petroleo_rates` | `dict[str, float] \| None` | `None` | Mapa código PETROLEO → tarifa por unidad. Usado por `fuel_invoice()`. |
+
 ## Inicio rápido
 
 ```python
@@ -257,6 +278,45 @@ client = DigifactClient(
 
 Para descubrir el par correcto en un caso particular, revisa las afiliaciones
 del RTU en el portal de SAT.
+
+## Referencia de métodos
+
+Todos los métodos de emisión devuelven `DteResult` con `result.auth_number`, `series`, `number`, `issue_datetime`, `raw`.
+
+| Método | Firma | Descripción |
+|--------|-------|-------------|
+| `invoice()` | `invoice(buyer, items, *, doc_type="FACT", payment_terms=None, amount_str="", observaciones="-", tipo_personeria=None, tipo_frase=None, escenario=None)` | Emite FACT, FCAM, FESP, FPEQ, NABN, RDON o RECI según `doc_type`. |
+| `cca_invoice()` | `cca_invoice(buyer, items, cobros, *, tipo_frase=None, escenario=None)` | FACT con complemento CCA. |
+| `fuel_invoice()` | `fuel_invoice(buyer, items, *, tipo_frase=None, escenario=None)` | FACT con complemento combustible (IVA + PETROLEO). |
+| `credit_note()` | `credit_note(buyer, items, origin, reason, *, tipo_frase=None, escenario=None)` | Nota de crédito (NCRE). |
+| `debit_note()` | `debit_note(buyer, items, origin, reason, *, tipo_frase=None, escenario=None)` | Nota de débito (NDEB). |
+| `credit_note_total()` | `credit_note_total(auth_number, issue_datetime, reason="...", reference="")` | Nota de crédito total. Devuelve `dict`. |
+| `cancel()` | `cancel(auth_number, receiver_id, issue_datetime, reason="Anulación")` | Anula un DTE. Devuelve `dict`. |
+| `lookup_nit()` | `lookup_nit(nit)` | Consulta SAT. Devuelve `{"nit","name","address","city","district","state"}`. |
+| `get_dte()` | `get_dte(auth_number, fmt="JSON")` | Recupera el DTE (`"JSON"`, `"XML"`, `"HTML"`, `"PDF"`). |
+| `get_dte_info()` | `get_dte_info(auth_number)` | Metadatos del DTE. |
+
+### Parámetros comunes
+
+- **`buyer`**: `"CF"` (consumidor final), un NIT string (`"12345678"` — se consulta el nombre), un dict CUI (`{"type":"CUI","taxid":...,"name":...}`) o un dict NIT explícito (`{"taxid","name","address","city","district","state","country","email"}`).
+- **`items`**: lista de dicts con `description` (str, req), `price` (float/Decimal, req), `qty` (1), `type` (`"Servicio"`/`"Bien"`), `unit_of_measure` (`"UNI"`), `discount` (opcional).
+- **`origin`** (NCRE/NDEB): `{"auth_number": ..., "date": "YYYY-MM-DD", "series": ..., "number": ...}`.
+
+## Establecimiento (sucursal)
+
+Cada NIT puede tener varios establecimientos registrados en el RTU. Configúralos al crear el cliente:
+
+```python
+client = DigifactClient(
+    taxid="12345678",
+    username="FELUSER",
+    password="secret",
+    branch_code="2",
+    branch_name="SUCURSAL ZONA 10",
+)
+```
+
+Aplican a todos los DTE emitidos por ese cliente. Si se omiten, se usan los defaults `"1"` / `"ESTABLECIMIENTO PRINCIPAL"`.
 
 ## Ejecutar las pruebas
 

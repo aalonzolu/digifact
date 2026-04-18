@@ -99,6 +99,32 @@ Console.WriteLine(result.AuthNumber);
 | `creditNote()` | NCRE | Nota de crédito parcial |
 | `creditNoteTotal()` | — | Nota de crédito total (anulación) |
 | `cancel()` | — | Anulación de DTE |
+| `fuelInvoice()` | FACT+Combustible | Factura con IVA + impuesto PETROLEO |
+| `ccaInvoice()` | FACT+CCA | Cobro por cuenta ajena |
+| `lookupNit()` | — | Consulta nombre/dirección de un NIT en SAT |
+| `getDte()` | — | Descarga un DTE ya emitido |
+
+## Configuración del cliente (común a los 4 SDKs)
+
+| Parámetro | Requerido | Descripción |
+|-----------|:---------:|-------------|
+| `taxid` / `Taxid` | ✔ | NIT del emisor. |
+| `username` / `Username` | ✔ | Usuario Digifact (la parte después de `GT.<NIT>.`). |
+| `password` / `Password` | ✔* | Contraseña. *O bien `token`. |
+| `token` / `Token` | ✔* | Bearer token preobtenido. *O bien `password`. |
+| `environment` / `Environment` | | `"test"` (default) o `"production"`. |
+| `seller_name` / `SellerName` | | Nombre del emisor. Auto-consulta en SAT si se omite. |
+| `seller_address` / `SellerAddress` | | Dirección del emisor. Auto-consulta en SAT si se omite. |
+| `afiliacion_iva` / `AfiliacionIva` | | `"GEN"` (default), `"PEQ"` o `"EXE"`. |
+| `tipo_personeria` / `TipoPersoneria` | | Código de personería del RTU. Default `"1"`. |
+| `branch_code` / `BranchCode` | | Código del establecimiento (RTU). Default `"1"`. |
+| `branch_name` / `BranchName` | | Nombre del establecimiento. Default `"ESTABLECIMIENTO PRINCIPAL"`. |
+| `tipo_frase` / `TipoFrase` | | Override global de `TipoFrase`. |
+| `escenario` / `Escenario` | | Override global de `CodigoEscenario`. |
+| `timeout` / `Timeout` | | Timeout HTTP. Default 120s (JS: 120000 ms). |
+| `petroleo_rates` / `PetroleoRates` | | Mapa código→tarifa PETROLEO para `fuelInvoice()`. |
+
+Ver detalles y ejemplos por lenguaje en los READMEs respectivos.
 
 ## Variables de entorno
 

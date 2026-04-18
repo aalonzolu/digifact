@@ -23,6 +23,8 @@ public sealed class DigifactClient : IDisposable
     private readonly string _tipoPersoneria;
     private readonly string? _tipoFrase;
     private readonly string? _escenario;
+    private readonly string _branchCode;
+    private readonly string _branchName;
     private readonly IReadOnlyDictionary<string, decimal> _petroleoRates;
     private readonly HttpClient _http;
     private readonly bool _ownsHttpClient;
@@ -69,6 +71,8 @@ public sealed class DigifactClient : IDisposable
         _tipoPersoneria = options.TipoPersoneria;
         _tipoFrase = options.TipoFrase;
         _escenario = options.Escenario;
+        _branchCode = string.IsNullOrEmpty(options.BranchCode) ? "1" : options.BranchCode;
+        _branchName = string.IsNullOrEmpty(options.BranchName) ? "ESTABLECIMIENTO PRINCIPAL" : options.BranchName;
         _petroleoRates = options.PetroleoRates
             ?? (IReadOnlyDictionary<string, decimal>)new Dictionary<string, decimal>();
         _baseUrl = baseUrl.TrimEnd('/');
@@ -229,8 +233,24 @@ public sealed class DigifactClient : IDisposable
 
     // ── Certify ────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Overlay configured <see cref="DigifactOptions.BranchCode"/> /
+    /// <see cref="DigifactOptions.BranchName"/> onto <c>Seller.BranchInfo</c> so
+    /// callers don't have to plumb branch info through every builder.
+    /// </summary>
+    private void ApplyBranchInfo(JsonObject payload)
+    {
+        if (payload["Seller"] is JsonObject seller &&
+            seller["BranchInfo"] is JsonObject branch)
+        {
+            branch["Code"] = _branchCode;
+            branch["Name"] = _branchName;
+        }
+    }
+
     private async Task<JsonElement> CertifyAsync(JsonObject payload, CancellationToken ct)
     {
+        ApplyBranchInfo(payload);
         var data = await PostAsync("/v2/transform/nuc_json", payload, withAuth: true,
             queryParams: new Dictionary<string, string>
             {
@@ -323,6 +343,7 @@ public sealed class DigifactClient : IDisposable
     /// </param>
     /// <param name="items">Line items.</param>
     /// <param name="opts">Optional document type and other parameters.</param>
+    /// <param name="ct">Cancellation token.</param>
     public async Task<DteResult> InvoiceAsync(
         BuyerDetails buyer, IReadOnlyList<LineItem> items,
         InvoiceOptions? opts = null, CancellationToken ct = default)
@@ -458,7 +479,11 @@ public sealed class DigifactClient : IDisposable
     /// <summary>
     /// Cancel a DTE.
     /// </summary>
+    /// <param name="authNumber">Authorization UUID of the DTE to cancel.</param>
+    /// <param name="receiverId">Receiver ID (NIT/CUI or <c>"CF"</c>) of the original DTE.</param>
     /// <param name="issueDateTime">Format "YYYY-MM-DD HH:MM:SS".</param>
+    /// <param name="reason">Reason for the cancellation.</param>
+    /// <param name="ct">Cancellation token.</param>
     public async Task<JsonElement> CancelAsync(
         string authNumber, string receiverId, string issueDateTime,
         string reason = "Anulación", CancellationToken ct = default) =>
@@ -475,7 +500,11 @@ public sealed class DigifactClient : IDisposable
     /// <summary>
     /// Create a total credit note (anulación by NCRE total).
     /// </summary>
+    /// <param name="authNumber">Authorization UUID of the original DTE.</param>
     /// <param name="issueDateTime">Format "YYYY-MM-DD HH:MM:SS".</param>
+    /// <param name="reason">Reason for the credit note.</param>
+    /// <param name="reference">Optional internal reference.</param>
+    /// <param name="ct">Cancellation token.</param>
     public async Task<JsonElement> CreditNoteTotalAsync(
         string authNumber, string issueDateTime,
         string reason = "Nota de crédito total", string reference = "",

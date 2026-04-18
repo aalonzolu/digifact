@@ -19,6 +19,26 @@ O desde el código fuente:
 composer install
 ```
 
+## Configuración del cliente (`new DigifactClient([...])`)
+
+| Clave | Tipo | Por defecto | Descripción |
+|-------|------|-------------|-------------|
+| `taxid` | `string` | **requerido** | NIT del emisor. Acepta dígitos o con separadores (`"12345678"`, `"1234567-8"`); los no-dígitos se eliminan. Se rellena internamente a 12 caracteres. |
+| `username` | `string` | **requerido** | Usuario corto de Digifact (la parte después de `GT.<NIT>.`, p. ej. `"FELUSER"`). |
+| `password` | `string` | `""` | Contraseña de la cuenta. **Requerido** si no se provee `token`. |
+| `token` | `string` | `""` | Bearer token preobtenido. Si se provee, se omite el login y `password` no es necesario. |
+| `environment` | `string` | `"test"` | `"test"` o `"production"`. |
+| `seller_name` | `string` | `""` | Nombre comercial del emisor. Si está vacío, se consulta en SAT vía `lookupNit($taxid)`. |
+| `seller_address` | `string` | `""` | Dirección del emisor. Si está vacía, se consulta en SAT. |
+| `afiliacion_iva` | `string` | `"GEN"` | Afiliación IVA del RTU: `"GEN"`, `"PEQ"` (pequeño contribuyente) o `"EXE"` (exento). |
+| `tipo_personeria` | `string` | `"1"` | Código de `TipoPersoneria` del RTU (usado en RDON). |
+| `branch_code` | `string` | `"1"` | **Código del establecimiento** del RTU. Un NIT puede tener varios establecimientos (1, 2, 3…); `"1"` suele ser el principal. Se escribe en `Seller.BranchInfo.Code`. |
+| `branch_name` | `string` | `"ESTABLECIMIENTO PRINCIPAL"` | Nombre comercial del establecimiento. Se escribe en `Seller.BranchInfo.Name`. |
+| `tipo_frase` | `?string` | `null` | Sobreescritura global de `TipoFrase`. Ver [Configuración de frases](#configuración-de-frases-tipofrase--codigoescenario). |
+| `escenario` | `?string` | `null` | Sobreescritura global de `CodigoEscenario`. |
+| `timeout` | `int` | `120` | Timeout HTTP en segundos. |
+| `petroleo_rates` | `array<string,float>` | `[]` | Mapa código PETROLEO → tarifa por unidad (SUPER/REGULAR/DIESEL). Usado por `fuelInvoice()`. |
+
 ## Inicio rápido
 
 ```php
@@ -177,6 +197,71 @@ $client = new DigifactClient([
 
 Para descubrir el par correcto en un caso particular, revisa las afiliaciones
 del RTU en el portal de SAT.
+
+## Referencia de métodos
+
+Todos los métodos devuelven `DteResult` (con `$result->authNumber`, `series`, `number`, `issueDateTime`, `raw`) salvo indicación contraria.
+
+| Método | Firma | Retorna | Descripción |
+|--------|-------|---------|-------------|
+| `invoice()` | `invoice(string\|array $buyer, array $items, array $opts = [])` | `DteResult` | Emite FACT, FCAM, FESP, FPEQ, NABN, RDON, RECI o FACT+CUI según `$opts['doc_type']`. |
+| `ccaInvoice()` | `ccaInvoice(string\|array $buyer, array $items, array $cobros, array $opts = [])` | `DteResult` | FACT con complemento CCA (cobro por cuenta ajena). |
+| `fuelInvoice()` | `fuelInvoice(string\|array $buyer, array $items, array $opts = [])` | `DteResult` | FACT con complemento combustible (IVA + PETROLEO). |
+| `creditNote()` | `creditNote(string\|array $buyer, array $items, array $origin, string $reason, array $opts = [])` | `DteResult` | Nota de crédito (NCRE) — ajuste parcial del documento origen. |
+| `debitNote()` | `debitNote(string\|array $buyer, array $items, array $origin, string $reason, array $opts = [])` | `DteResult` | Nota de débito (NDEB). |
+| `creditNoteTotal()` | `creditNoteTotal(string $authNumber, string $issueDateTime, string $reason = '...', string $reference = '')` | `array` | Nota de crédito total sobre un DTE previo. |
+| `cancel()` | `cancel(string $authNumber, string $receiverId, string $issueDateTime, string $reason = 'Anulación')` | `array` | Anula un DTE emitido. |
+| `lookupNit()` | `lookupNit(string $nit)` | `array` | Consulta el nombre y dirección de un NIT en SAT. Devuelve `['nit','name','address','city','district','state']`. |
+| `getDte()` | `getDte(string $authNumber, string $format = 'JSON')` | `array` | Recupera el DTE en el formato indicado (`'JSON'`, `'XML'`, `'HTML'`, `'PDF'`). |
+| `getDteInfo()` | `getDteInfo(string $authNumber)` | `array` | Metadatos de un DTE emitido. |
+
+### Parámetros comunes
+
+- **`$buyer`**: puede ser
+  - `'CF'` → consumidor final,
+  - un NIT como string (`'12345678'`) → se consulta el nombre automáticamente,
+  - un array `['type' => 'CUI', 'taxid' => ..., 'name' => ...]`, o
+  - un array NIT explícito (`['taxid','name','address','city','district','state','country','email']`).
+- **`$items`**: lista de arreglos con `description` (string, req), `price` (float, req), `qty` (float, 1), `type` (`'Bien'`/`'Servicio'`), `unit_of_measure` (`'UNI'`), `discount` (opcional).
+- **`$opts`**: `doc_type` (`'FACT'`/`'FCAM'`/`'FESP'`/`'FPEQ'`/`'NABN'`/`'RDON'`/`'RECI'`), `payment_terms` (req. para FCAM), `amount_str`, `observaciones`, `tipo_personeria`, `tipo_frase`, `escenario`.
+- **`$origin`** (NCRE/NDEB): `['auth_number' => ..., 'date' => 'YYYY-MM-DD', 'series' => ..., 'number' => ...]`.
+
+## Establecimiento (sucursal)
+
+Cada NIT puede tener varios establecimientos registrados en el RTU. Configúralos al crear el cliente:
+
+```php
+$client = new DigifactClient([
+    'taxid'       => '12345678',
+    'username'    => 'FELUSER',
+    'password'    => 'secret',
+    'branch_code' => '2',
+    'branch_name' => 'SUCURSAL ZONA 10',
+]);
+```
+
+Aplican a todos los DTE emitidos por ese cliente. Si no los especificas, se usan los defaults `"1"` / `"ESTABLECIMIENTO PRINCIPAL"`.
+
+## Manejo de errores
+
+```php
+use Digifact\Fel\{
+    DigifactException,            // base
+    DigifactAuthException,        // fallo de autenticación
+    DigifactApiException,         // error HTTP / de API
+    DigifactValidationException,  // rechazo de SAT
+    DigifactNitNotFoundException, // NIT no encontrado
+};
+
+try {
+    $result = $client->invoice('CF', $items);
+} catch (DigifactValidationException $e) {
+    echo "SAT rechazó (code={$e->getCode()}): {$e->getMessage()}\n";
+    print_r($e->raw);
+} catch (DigifactException $e) {
+    echo "Error del SDK: {$e->getMessage()}\n";
+}
+```
 
 ## Ejecutar las pruebas
 

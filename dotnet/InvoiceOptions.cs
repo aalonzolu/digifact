@@ -29,9 +29,9 @@ public sealed class InvoiceOptions
 }
 
 /// <summary>A payment instalment for FCAM invoices.</summary>
+/// <param name="Date">Due date in <c>"YYYY-MM-DD"</c> format.</param>
+/// <param name="Amount">Instalment amount.</param>
 public sealed record PaymentTerm(
-    /// <summary>Due date in "YYYY-MM-DD" format.</summary>
     string Date,
-    /// <summary>Instalment amount.</summary>
     decimal Amount
 );

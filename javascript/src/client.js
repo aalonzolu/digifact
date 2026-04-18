@@ -61,20 +61,65 @@ export class DteResult {
 
 export class DigifactClient {
   /**
+   * Create a DigifactClient.
+   *
+   * Authentication
+   * - `taxid` (string, required): Issuer NIT. Digits only or with separators
+   *   (e.g. "12345678" or "1234567-8"); non-digits are stripped.
+   * - `username` (string, required): Short Digifact username (the part after
+   *   the `GT.<NIT>.` prefix, e.g. "FELUSER").
+   * - `password` (string): Account password. Required unless `token` is set.
+   * - `token` (string): Pre-obtained bearer token. If provided, login is
+   *   skipped and `password` is not needed.
+   * - `environment` (string): "test" (default) or "production".
+   *
+   * Seller / RTU information
+   * - `seller_name` (string): Overrides issuer display name. When empty, the
+   *   SDK resolves it from SAT via `lookupNit(taxid)`.
+   * - `seller_address` (string): Overrides issuer address. When empty, the
+   *   SDK resolves it from SAT via `lookupNit(taxid)`.
+   * - `afiliacion_iva` (string): IVA affiliation recorded in SAT RTU.
+   *   One of "GEN" (default), "PEQ" (Pequeño Contribuyente) or "EXE" (Exento).
+   * - `tipo_personeria` (string): TipoPersoneria code from RTU (used by RDON).
+   *   Default "1".
+   * - `branch_code` (string): Código del establecimiento (SAT RTU). Each NIT
+   *   may have several establecimientos (1, 2, 3, …); "1" is usually the
+   *   principal. Default "1".
+   * - `branch_name` (string): Nombre comercial del establecimiento.
+   *   Default "ESTABLECIMIENTO PRINCIPAL".
+   *
+   * Frase / escenario (SAT AdditionlInfo)
+   * - `tipo_frase` (string|null): Global override for TipoFrase. When null
+   *   (default), the SDK uses `defaultFrase()` based on DocType + afiliacion.
+   *   Can be overridden per-call.
+   * - `escenario` (string|null): Global override for CodigoEscenario. When
+   *   null (default), uses the defaults table. For GEN, common values are
+   *   "1" (ISR régimen sobre utilidades, default) or "2" (ISR opcional
+   *   simplificado sobre ingresos).
+   *
+   * Misc
+   * - `timeout` (number): HTTP request timeout in ms. Default 120000.
+   * - `petroleo_rates` (Object<string,number>): Map of PETROLEO code → per-
+   *   unit tax amount, e.g. `{ "1": 4.70, "2": 4.60, "4": 1.30 }`
+   *   (SUPER/REGULAR/DIESEL). Used by `fuelInvoice()` when items provide
+   *   `petroleo_code` but omit `petroleo_amount`.
+   *
    * @param {object} config
    * @param {string} config.taxid
    * @param {string} config.username
    * @param {string} [config.password]
-   * @param {string} [config.environment] "test" | "production"
-   * @param {string} [config.token]  Pre-obtained bearer token
+   * @param {string} [config.environment]
+   * @param {string} [config.token]
    * @param {string} [config.seller_name]
    * @param {string} [config.seller_address]
-   * @param {string} [config.afiliacion_iva]  "GEN" | "PEQ" | "EXE"
+   * @param {string} [config.afiliacion_iva]
    * @param {string} [config.tipo_personeria]
-   * @param {string} [config.tipo_frase]  Global override for TipoFrase. If null, uses defaults table.
-   * @param {string} [config.escenario]   Global override for CodigoEscenario. If null, uses defaults table.
-   * @param {number} [config.timeout]  ms, default 120000
-   * @param {Object<string,number>} [config.petroleo_rates]  Code→amount map, e.g. {"1":4.70,"2":4.60,"4":1.30}
+   * @param {string} [config.tipo_frase]
+   * @param {string} [config.escenario]
+   * @param {string} [config.branch_code]
+   * @param {string} [config.branch_name]
+   * @param {number} [config.timeout]
+   * @param {Object<string,number>} [config.petroleo_rates]
    */
   constructor({
     taxid,
@@ -88,6 +133,8 @@ export class DigifactClient {
     tipo_personeria: tipoPersoneria = '1',
     tipo_frase: tipoFrase = null,
     escenario = null,
+    branch_code: branchCode = '1',
+    branch_name: branchName = 'ESTABLECIMIENTO PRINCIPAL',
     timeout = 120_000,
     petroleo_rates: petroleoRates = {},
   }) {
@@ -99,6 +146,8 @@ export class DigifactClient {
     this.tipoPersoneria = tipoPersoneria;
     this.tipoFrase = tipoFrase;
     this.escenario = escenario;
+    this.branchCode = branchCode;
+    this.branchName = branchName;
     this.timeout = timeout;
     this.petroleoRates = Object.assign({}, petroleoRates);
     if (!this.taxid) throw new TypeError('taxid must contain at least one digit');
@@ -249,7 +298,21 @@ export class DigifactClient {
 
   // ── Certify ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Overlay configured branch_code / branch_name onto Seller.BranchInfo so
+   * callers don't have to plumb branch info through every builder.
+   */
+  _applyBranchInfo(payload) {
+    const branch = payload?.Seller?.BranchInfo;
+    if (branch && typeof branch === 'object') {
+      branch.Code = this.branchCode;
+      branch.Name = this.branchName;
+    }
+    return payload;
+  }
+
   async _certify(payload) {
+    payload = this._applyBranchInfo(payload);
     const data = await this._post('/v2/transform/nuc_json', payload, true, {
       TAXID: this.paddedTaxid,
       FORMAT: 'XML|HTML|PDF',

@@ -36,6 +36,20 @@ public sealed class DigifactOptions
     public string TipoPersoneria { get; init; } = "1";
 
     /// <summary>
+    /// Código del establecimiento (SAT RTU). Each NIT may have several
+    /// establecimientos (1, 2, 3, …); <c>"1"</c> is usually the principal.
+    /// Written to <c>Seller.BranchInfo.Code</c> on every DTE. Default <c>"1"</c>.
+    /// </summary>
+    public string BranchCode { get; init; } = "1";
+
+    /// <summary>
+    /// Nombre comercial del establecimiento. Written to
+    /// <c>Seller.BranchInfo.Name</c> on every DTE.
+    /// Default <c>"ESTABLECIMIENTO PRINCIPAL"</c>.
+    /// </summary>
+    public string BranchName { get; init; } = "ESTABLECIMIENTO PRINCIPAL";
+
+    /// <summary>
     /// Global override for TipoFrase (SAT <c>AdditionlInfo</c>). When <c>null</c> (default),
     /// the SDK uses <see cref="DteBuilder.DefaultFrase"/> based on DocType + AfiliacionIva.
     /// Can be overridden per-call via <see cref="InvoiceOptions.TipoFrase"/>.

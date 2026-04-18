@@ -4,6 +4,26 @@ SDK en JavaScript (Node 18+) para la API de facturación electrónica en línea 
 
 Sin dependencias en tiempo de ejecución — usa `fetch` nativo (Node 18+).
 
+## Configuración del cliente (`new DigifactClient({...})`)
+
+| Propiedad | Tipo | Por defecto | Descripción |
+|-----------|------|-------------|-------------|
+| `taxid` | `string` | **requerido** | NIT del emisor. Acepta dígitos o con separadores (`"12345678"`, `"1234567-8"`). |
+| `username` | `string` | **requerido** | Usuario corto de Digifact (p. ej. `"FELUSER"`). |
+| `password` | `string` | `""` | Contraseña de la cuenta. **Requerido** si no se provee `token`. |
+| `environment` | `string` | `"test"` | `"test"` o `"production"`. |
+| `token` | `string` | `""` | Bearer token preobtenido. Si se provee, se omite el login. |
+| `seller_name` | `string` | `""` | Nombre comercial del emisor. Si está vacío, se consulta en SAT vía `lookupNit()`. |
+| `seller_address` | `string` | `""` | Dirección del emisor. Si está vacía, se consulta en SAT. |
+| `afiliacion_iva` | `string` | `"GEN"` | Afiliación IVA del RTU: `"GEN"`, `"PEQ"` o `"EXE"`. |
+| `tipo_personeria` | `string` | `"1"` | Código de `TipoPersoneria` del RTU (usado en RDON). |
+| `branch_code` | `string` | `"1"` | **Código del establecimiento** del RTU. Se escribe en `Seller.BranchInfo.Code`. |
+| `branch_name` | `string` | `"ESTABLECIMIENTO PRINCIPAL"` | Nombre comercial del establecimiento. Se escribe en `Seller.BranchInfo.Name`. |
+| `tipo_frase` | `string \| null` | `null` | Sobreescritura global de `TipoFrase`. Ver [frases](#configuración-de-frases-tipofrase--codigoescenario). |
+| `escenario` | `string \| null` | `null` | Sobreescritura global de `CodigoEscenario`. |
+| `timeout` | `number` | `120000` | Timeout HTTP en **ms**. |
+| `petroleo_rates` | `Object<string,number>` | `{}` | Mapa código PETROLEO → tarifa por unidad. Usado por `fuelInvoice()`. |
+
 ## Inicio rápido
 
 ```javascript
@@ -156,6 +176,68 @@ const client = new DigifactClient({
   tipo_frase: '1',  // opcional — la tabla ya devuelve '1' para GEN
   escenario: '2',   // ISR régimen opcional simplificado (sobreescribe el '1' por defecto)
 });
+```
+
+## Referencia de métodos
+
+Todos los métodos son **asíncronos**. Los de emisión devuelven `DteResult` con `result.authNumber`, `series`, `number`, `issueDateTime`, `raw`.
+
+| Método | Firma | Descripción |
+|--------|-------|-------------|
+| `invoice()` | `invoice(buyer, items, opts = {})` | Emite FACT, FCAM, FESP, FPEQ, NABN, RDON o RECI según `opts.doc_type`. |
+| `ccaInvoice()` | `ccaInvoice(buyer, items, cobros, opts = {})` | FACT con complemento CCA. |
+| `fuelInvoice()` | `fuelInvoice(buyer, items, opts = {})` | FACT con complemento combustible (IVA + PETROLEO). |
+| `creditNote()` | `creditNote(buyer, items, origin, reason, opts = {})` | Nota de crédito (NCRE). |
+| `debitNote()` | `debitNote(buyer, items, origin, reason, opts = {})` | Nota de débito (NDEB). |
+| `creditNoteTotal()` | `creditNoteTotal(authNumber, issueDateTime, reason = '...', reference = '')` | Nota de crédito total. Devuelve `object`. |
+| `cancel()` | `cancel(authNumber, receiverId, issueDateTime, reason = 'Anulación')` | Anula un DTE. Devuelve `object`. |
+| `lookupNit()` | `lookupNit(nit)` | Consulta SAT. Devuelve `{ nit, name, address, city, district, state }`. |
+| `getDte()` | `getDte(authNumber, format = 'JSON')` | Recupera el DTE (`'JSON'`, `'XML'`, `'HTML'`, `'PDF'`). |
+| `getDteInfo()` | `getDteInfo(authNumber)` | Metadatos del DTE. |
+
+### Parámetros comunes
+
+- **`buyer`**: `'CF'` (consumidor final), un NIT string (`'12345678'` — se consulta el nombre), un objeto CUI (`{ type: 'CUI', taxid, name }`) o un objeto NIT explícito (`{ taxid, name, address, city, district, state, country, email }`).
+- **`items`**: array de objetos con `description` (req), `price` (req), `qty` (1), `type` (`'Servicio'`/`'Bien'`), `unit_of_measure` (`'UNI'`), `discount` (opcional).
+- **`opts`**: `doc_type`, `payment_terms` (req. para FCAM), `amount_str`, `observaciones`, `tipo_personeria`, `tipo_frase`, `escenario`.
+- **`origin`** (NCRE/NDEB): `{ auth_number, date: 'YYYY-MM-DD', series, number }`.
+
+## Establecimiento (sucursal)
+
+Cada NIT puede tener varios establecimientos registrados en el RTU. Configúralos al crear el cliente:
+
+```js
+const client = new DigifactClient({
+  taxid: '12345678',
+  username: 'FELUSER',
+  password: 'secret',
+  branch_code: '2',
+  branch_name: 'SUCURSAL ZONA 10',
+});
+```
+
+Aplican a todos los DTE emitidos por ese cliente. Si se omiten, se usan los defaults `'1'` / `'ESTABLECIMIENTO PRINCIPAL'`.
+
+## Manejo de errores
+
+```js
+import {
+  DigifactError,            // base
+  DigifactAuthError,        // fallo de autenticación
+  DigifactApiError,         // error HTTP / de API
+  DigifactValidationError,  // rechazo de SAT
+  DigifactNitNotFoundError, // NIT no encontrado
+} from 'digifact-sdk';
+
+try {
+  const r = await client.invoice('CF', items);
+} catch (e) {
+  if (e instanceof DigifactValidationError) {
+    console.error('SAT rechazó:', e.message, e.raw);
+  } else if (e instanceof DigifactError) {
+    console.error('Error del SDK:', e.message);
+  }
+}
 ```
 
 ## Ejecutar las pruebas
