@@ -138,23 +138,25 @@ var fuel2 = await client.FuelInvoiceAsync(
 
 ## Configuración
 
+Ordenadas de más usadas a menos usadas.
+
 | Opción | Tipo | Por defecto | Descripción |
 |--------|------|---------|-------------|
 | `Taxid` | `string` | requerido | NIT del emisor |
 | `Username` | `string` | requerido | Usuario de Digifact |
-| `Password` | `string` | `""` | Contraseña (requerida si no hay Token) |
+| `Password` | `string` | `""` | Contraseña (requerida si no hay `Token`) |
 | `Token` | `string` | `""` | Bearer token preobtenido (omite el login) |
 | `Environment` | `string` | `"test"` | `"test"` o `"production"` |
-| `SellerName` | `string` | `""` | Nombre del emisor (se consulta vía NIT si está vacío) |
+| `SellerName` | `string` | `""` | Nombre del emisor. Para NIT individual es el nombre de la persona; para S.A. / S.E. es la razón social de la entidad. Se consulta vía NIT si está vacío. |
 | `SellerAddress` | `string` | `""` | Dirección del emisor (se consulta si está vacía) |
-| `AfiliacionIva` | `string` | `"GEN"` | `"GEN"`, `"PEQ"` o `"EXE"` |
-| `TipoPersoneria` | `string` | `"1"` | Código de personería del RTU de SAT |
 | `BranchCode` | `string` | `"1"` | **Código del establecimiento** del RTU. Se escribe en `Seller.BranchInfo.Code`. |
-| `BranchName` | `string` | `"ESTABLECIMIENTO PRINCIPAL"` | Nombre comercial del establecimiento. Se escribe en `Seller.BranchInfo.Name`. |
-| `TipoFrase` | `string?` | `null` | Sobreescritura global de `TipoFrase`; ver abajo |
-| `Escenario` | `string?` | `null` | Sobreescritura global de `CodigoEscenario`; ver abajo |
+| `BranchName` | `string` | `"ESTABLECIMIENTO PRINCIPAL"` | **Nombre comercial** de la sucursal — el mismo que aparece en la patente de comercio. Se escribe en `Seller.BranchInfo.Name`. |
+| `AfiliacionIva` | `string` | `"GEN"` | `"GEN"`, `"PEQ"` o `"EXE"` |
+| `TipoFrase` | `string?` | `null` | Sobreescritura global de `TipoFrase` (raramente necesario); ver abajo |
+| `Escenario` | `string?` | `null` | Sobreescritura global de `CodigoEscenario` (raramente necesario); ver abajo |
+| `PetroleoRates` | `IDictionary<string,decimal>?` | `null` | Mapa código PETROLEO→monto para autocompletado en `FuelInvoiceAsync` (sólo gasolineras) |
 | `Timeout` | `TimeSpan` | 120s | Timeout de la solicitud HTTP |
-| `PetroleoRates` | `IDictionary<string,decimal>?` | `null` | Mapa código PETROLEO→monto para autocompletado en `FuelInvoiceAsync` |
+| `TipoPersoneria` | `string` | `"1"` | Código de personería del RTU de SAT. **Sólo aplica a RDON** (Recibo por Donación); ignóralo en los demás documentos. |
 
 ## Configuración de frases (TipoFrase / CodigoEscenario)
 

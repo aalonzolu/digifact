@@ -21,6 +21,8 @@ composer install
 
 ## Configuración del cliente (`new DigifactClient([...])`)
 
+Ordenados de más usados a menos usados.
+
 | Clave | Tipo | Por defecto | Descripción |
 |-------|------|-------------|-------------|
 | `taxid` | `string` | **requerido** | NIT del emisor. Acepta dígitos o con separadores (`"12345678"`, `"1234567-8"`); los no-dígitos se eliminan. Se rellena internamente a 12 caracteres. |
@@ -28,16 +30,16 @@ composer install
 | `password` | `string` | `""` | Contraseña de la cuenta. **Requerido** si no se provee `token`. |
 | `token` | `string` | `""` | Bearer token preobtenido. Si se provee, se omite el login y `password` no es necesario. |
 | `environment` | `string` | `"test"` | `"test"` o `"production"`. |
-| `seller_name` | `string` | `""` | Nombre comercial del emisor. Si está vacío, se consulta en SAT vía `lookupNit($taxid)`. |
+| `seller_name` | `string` | `""` | Nombre del emisor. Para NIT individual es el nombre de la persona; para S.A. / S.E. es la razón social de la entidad. Si está vacío, se consulta en SAT vía `lookupNit($taxid)`. |
 | `seller_address` | `string` | `""` | Dirección del emisor. Si está vacía, se consulta en SAT. |
-| `afiliacion_iva` | `string` | `"GEN"` | Afiliación IVA del RTU: `"GEN"`, `"PEQ"` (pequeño contribuyente) o `"EXE"` (exento). |
-| `tipo_personeria` | `string` | `"1"` | Código de `TipoPersoneria` del RTU (usado en RDON). |
 | `branch_code` | `string` | `"1"` | **Código del establecimiento** del RTU. Un NIT puede tener varios establecimientos (1, 2, 3…); `"1"` suele ser el principal. Se escribe en `Seller.BranchInfo.Code`. |
-| `branch_name` | `string` | `"ESTABLECIMIENTO PRINCIPAL"` | Nombre comercial del establecimiento. Se escribe en `Seller.BranchInfo.Name`. |
-| `tipo_frase` | `?string` | `null` | Sobreescritura global de `TipoFrase`. Ver [Configuración de frases](#configuración-de-frases-tipofrase--codigoescenario). |
-| `escenario` | `?string` | `null` | Sobreescritura global de `CodigoEscenario`. |
+| `branch_name` | `string` | `"ESTABLECIMIENTO PRINCIPAL"` | **Nombre comercial** de la sucursal — el mismo que aparece en la patente de comercio. Se escribe en `Seller.BranchInfo.Name`. |
+| `afiliacion_iva` | `string` | `"GEN"` | Afiliación IVA del RTU: `"GEN"`, `"PEQ"` (pequeño contribuyente) o `"EXE"` (exento). |
+| `tipo_frase` | `?string` | `null` | Sobreescritura global de `TipoFrase` (raramente necesario). Ver [Configuración de frases](#configuración-de-frases-tipofrase--codigoescenario). |
+| `escenario` | `?string` | `null` | Sobreescritura global de `CodigoEscenario` (raramente necesario). |
+| `petroleo_rates` | `array<string,float>` | `[]` | Mapa código PETROLEO → tarifa por unidad (SUPER/REGULAR/DIESEL). Usado sólo por `fuelInvoice()` (gasolineras). |
 | `timeout` | `int` | `120` | Timeout HTTP en segundos. |
-| `petroleo_rates` | `array<string,float>` | `[]` | Mapa código PETROLEO → tarifa por unidad (SUPER/REGULAR/DIESEL). Usado por `fuelInvoice()`. |
+| `tipo_personeria` | `string` | `"1"` | Código de `TipoPersoneria` del RTU. **Sólo aplica a RDON** (Recibo por Donación); ignóralo en los demás documentos. |
 
 ## Inicio rápido
 

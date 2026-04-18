@@ -106,6 +106,8 @@ Console.WriteLine(result.AuthNumber);
 
 ## Configuración del cliente (común a los 4 SDKs)
 
+Ordenados de más usados a menos usados.
+
 | Parámetro | Requerido | Descripción |
 |-----------|:---------:|-------------|
 | `taxid` / `Taxid` | ✔ | NIT del emisor. |
@@ -113,16 +115,16 @@ Console.WriteLine(result.AuthNumber);
 | `password` / `Password` | ✔* | Contraseña. *O bien `token`. |
 | `token` / `Token` | ✔* | Bearer token preobtenido. *O bien `password`. |
 | `environment` / `Environment` | | `"test"` (default) o `"production"`. |
-| `seller_name` / `SellerName` | | Nombre del emisor. Auto-consulta en SAT si se omite. |
+| `seller_name` / `SellerName` | | Nombre del emisor. Para NIT individual es el nombre de la persona; para S.A. / S.E. es la razón social. Auto-consulta en SAT si se omite. |
 | `seller_address` / `SellerAddress` | | Dirección del emisor. Auto-consulta en SAT si se omite. |
-| `afiliacion_iva` / `AfiliacionIva` | | `"GEN"` (default), `"PEQ"` o `"EXE"`. |
-| `tipo_personeria` / `TipoPersoneria` | | Código de personería del RTU. Default `"1"`. |
 | `branch_code` / `BranchCode` | | Código del establecimiento (RTU). Default `"1"`. |
-| `branch_name` / `BranchName` | | Nombre del establecimiento. Default `"ESTABLECIMIENTO PRINCIPAL"`. |
-| `tipo_frase` / `TipoFrase` | | Override global de `TipoFrase`. |
-| `escenario` / `Escenario` | | Override global de `CodigoEscenario`. |
+| `branch_name` / `BranchName` | | Nombre comercial de la sucursal, el mismo que aparece en la patente de comercio. Default `"ESTABLECIMIENTO PRINCIPAL"`. |
+| `afiliacion_iva` / `AfiliacionIva` | | `"GEN"` (default), `"PEQ"` o `"EXE"`. |
+| `tipo_frase` / `TipoFrase` | | Override global de `TipoFrase` (raramente necesario). |
+| `escenario` / `Escenario` | | Override global de `CodigoEscenario` (raramente necesario). |
+| `petroleo_rates` / `PetroleoRates` | | Mapa código→tarifa PETROLEO para `fuelInvoice()` (sólo gasolineras). |
 | `timeout` / `Timeout` | | Timeout HTTP. Default 120s (JS: 120000 ms). |
-| `petroleo_rates` / `PetroleoRates` | | Mapa código→tarifa PETROLEO para `fuelInvoice()`. |
+| `tipo_personeria` / `TipoPersoneria` | | Código de personería del RTU. Sólo aplica a RDON. Default `"1"`. |
 
 Ver detalles y ejemplos por lenguaje en los READMEs respectivos.
 
