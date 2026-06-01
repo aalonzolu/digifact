@@ -30,8 +30,10 @@ Ordenados de más usados a menos usados.
 | `branch_code` | `str` | `"1"` | **Código del establecimiento** del RTU. Un NIT puede tener varios establecimientos (1, 2, 3…). Se escribe en `Seller.BranchInfo.Code`. |
 | `branch_name` | `str` | `"ESTABLECIMIENTO PRINCIPAL"` | **Nombre comercial** de la sucursal — el mismo que aparece en la patente de comercio. Se escribe en `Seller.BranchInfo.Name`. |
 | `afiliacion_iva` | `str` | `"GEN"` | Afiliación IVA del RTU: `"GEN"`, `"PEQ"` o `"EXE"`. |
-| `tipo_frase` | `str \| None` | `None` | Sobreescritura global de `TipoFrase` (raramente necesario). Ver [frases](#configuración-de-frases-tipofrase--codigoescenario). |
-| `escenario` | `str \| None` | `None` | Sobreescritura global de `CodigoEscenario` (raramente necesario). |
+| `tipo_frase` | `str \| None` | `None` | Sobreescritura global de `TipoFrase` (legacy). **Mutuamente exclusivo con `frases`**. Ver [frases](#configuración-de-frases-tipofrase--codigoescenario). |
+| `escenario` | `str \| None` | `None` | Sobreescritura global de `CodigoEscenario` (legacy). **Mutuamente exclusivo con `frases`**. |
+| `frases` | `list[dict] \| None` | `None` | Lista de frases `{"tipo_frase": ..., "escenario": ...}`. Reemplaza a `tipo_frase`/`escenario`. **Mutuamente exclusivo** con ellos. Ver [frases](#configuración-de-frases-tipofrase--codigoescenario). |
+| `auto_fuel_subsidy_frases` | `bool \| None` | `None` | Controla la auto-inyección de frases 9/18 y 9/19 en facturas de combustible durante el periodo de subsidio. `None` = usar default (`True`). Ver [subsidio combustible](#subsidio-combustible-frases-automaticas). |
 | `petroleo_rates` | `dict[str, float] \| None` | `None` | Mapa código PETROLEO → tarifa por unidad. Usado sólo por `fuel_invoice()` (gasolineras). |
 | `timeout` | `int` | `120` | Timeout HTTP en segundos. |
 | `session` | `requests.Session \| None` | `None` | Sesión HTTP personalizada (útil para tests). |
@@ -234,13 +236,36 @@ result = client.fuel_invoice(
 | `petroleo_amount` | `float\|Decimal` | — | Impuesto PETROLEO por unidad; omitir para ítems sólo-IVA |
 | `petroleo_code` | `str` | `"1"` | `"1"`=SUPER, `"2"`=REGULAR, `"4"`=DIESEL. Obligatorio cuando se omite `petroleo_amount` y `petroleo_rates` está configurado; lanza `DigifactValidationError` si el código no está en el diccionario de tarifas. |
 
+### Subsidio combustible — frases automáticas
+
+Durante el **periodo de subsidio de combustibles** (2026-04-27 a 2026-07-27), SAT exige incluir frases especiales `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19` en las facturas de combustible. **El SDK las agrega automáticamente** cuando la fecha de emisión cae dentro de la ventana — no se necesita cambiar ningún código existente.
+
+```python
+# Sin cambios — el SDK agrega 9/18 y 9/19 automáticamente durante el subsidio
+result = client.fuel_invoice("CF", items)
+
+# Deshabilitarlo por llamada
+result = client.fuel_invoice("CF", items, auto_fuel_subsidy_frases=False)
+
+# Deshabilitarlo globalmente al construir el cliente
+client = DigifactClient(..., auto_fuel_subsidy_frases=False)
+
+# Deshabilitarlo sin tocar código (útil si el presupuesto se agota antes de la fecha)
+# DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1  (variable de entorno)
+
+# Frases completamente personalizadas (deshabilita auto-inyección)
+result = client.fuel_invoice("CF", items, frases=[{"tipo_frase": "1", "escenario": "1"}])
+```
+
+> **Nota:** `frases` y `tipo_frase`/`escenario` son **mutuamente exclusivos** — pasarlos juntos lanza `DigifactValidationError`.
+
 ## Configuración de frases (TipoFrase / CodigoEscenario)
 
 Todo DTE (excepto FESP) debe llevar un par `TipoFrase` + `CodigoEscenario`. El
 SDK elige valores por defecto adecuados, por lo que **no** hace falta
 configurar nada en el caso común.
 
-**Orden de precedencia:** argumentos por llamada → globales del constructor (`tipo_frase` / `escenario`) → tabla de valores por defecto.
+**Orden de precedencia:** argumentos por llamada → globales del constructor → tabla de valores por defecto.
 
 **Tabla de valores por defecto:**
 
@@ -255,10 +280,30 @@ configurar nada en el caso común.
 | FACT / FCAM / NCRE / NDEB | PEQ | `2` | `1` | |
 | FACT / FCAM / NCRE / NDEB | EXE | `4` | `1` | Exento |
 
-Tanto `tipo_frase` como `escenario` se pueden sobreescribir de forma
-independiente — por llamada (como argumentos con nombre) o globalmente al
-construir el cliente. Cuando se omiten, cada uno cae al global del
-constructor y luego a la tabla de valores por defecto.
+### Nueva API: `frases[]` (múltiples frases)
+
+Usa `frases` cuando necesitas enviar **más de un par** TipoFrase/Escenario (p. ej. listados en resoluciones SAT). Es **mutuamente exclusivo** con `tipo_frase`/`escenario`.
+
+```python
+# Lista explícita de frases (deshabilita tipo_frase/escenario y auto-inyección)
+client.fuel_invoice("CF", items, frases=[
+    {"tipo_frase": "1", "escenario": "1"},
+    {"tipo_frase": "9", "escenario": "18"},
+    {"tipo_frase": "9", "escenario": "19"},
+])
+
+# Globalmente en el constructor
+client = DigifactClient(
+    taxid="12345678", username="FELUSER", password="...",
+    frases=[{"tipo_frase": "1", "escenario": "2"}],  # ISR régimen opcional simplificado
+)
+```
+
+> **Regla:** `frases` y `tipo_frase`/`escenario` son **mutuamente exclusivos** en cada nivel (por llamada y en el constructor). Combinarlos lanza `DigifactValidationError`.
+
+### API legacy: `tipo_frase` / `escenario`
+
+Ambos parámetros siguen funcionando exactamente como antes para integraciones existentes.
 
 ```python
 # Sobreescritura por llamada (uno o ambos)
@@ -289,7 +334,7 @@ Todos los métodos de emisión devuelven `DteResult` con `result.auth_number`, `
 |--------|-------|-------------|
 | `invoice()` | `invoice(buyer, items, *, doc_type="FACT", payment_terms=None, amount_str="", observaciones="-", tipo_personeria=None, tipo_frase=None, escenario=None)` | Emite FACT, FCAM, FESP, FPEQ, NABN, RDON o RECI según `doc_type`. |
 | `cca_invoice()` | `cca_invoice(buyer, items, cobros, *, tipo_frase=None, escenario=None)` | FACT con complemento CCA. |
-| `fuel_invoice()` | `fuel_invoice(buyer, items, *, tipo_frase=None, escenario=None)` | FACT con complemento combustible (IVA + PETROLEO). |
+| `fuel_invoice()` | `fuel_invoice(buyer, items, *, tipo_frase=None, escenario=None, frases=None, auto_fuel_subsidy_frases=None)` | FACT con complemento combustible (IVA + PETROLEO). Auto-inyecta frases 9/18 y 9/19 durante el subsidio. |
 | `credit_note()` | `credit_note(buyer, items, origin, reason, *, tipo_frase=None, escenario=None)` | Nota de crédito (NCRE). |
 | `debit_note()` | `debit_note(buyer, items, origin, reason, *, tipo_frase=None, escenario=None)` | Nota de débito (NDEB). |
 | `credit_note_total()` | `credit_note_total(auth_number, issue_datetime, reason="...", reference="")` | Nota de crédito total. Devuelve `dict`. |

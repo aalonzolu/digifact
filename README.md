@@ -120,13 +120,25 @@ Ordenados de más usados a menos usados.
 | `branch_code` / `BranchCode` | | Código del establecimiento (RTU). Default `"1"`. |
 | `branch_name` / `BranchName` | | Nombre comercial de la sucursal, el mismo que aparece en la patente de comercio. Default `"ESTABLECIMIENTO PRINCIPAL"`. |
 | `afiliacion_iva` / `AfiliacionIva` | | `"GEN"` (default), `"PEQ"` o `"EXE"`. |
-| `tipo_frase` / `TipoFrase` | | Override global de `TipoFrase` (raramente necesario). |
-| `escenario` / `Escenario` | | Override global de `CodigoEscenario` (raramente necesario). |
+| `tipo_frase` / `TipoFrase` | | Override global de `TipoFrase` (legacy). **Mutuamente exclusivo con `frases`**. |
+| `escenario` / `Escenario` | | Override global de `CodigoEscenario` (legacy). **Mutuamente exclusivo con `frases`**. |
+| `frases` / `Frases` | | **Nuevo.** Lista de frases `{tipo_frase, escenario}`. Reemplaza a `tipo_frase`/`escenario`. Mutuamente exclusivo con ellos. |
+| `auto_fuel_subsidy_frases` / `AutoFuelSubsidyFrases` | | **Nuevo.** Controla la auto-inyección de frases 9/18 y 9/19 en `fuelInvoice()`. Default `true` (o `null`). |
 | `petroleo_rates` / `PetroleoRates` | | Mapa código→tarifa PETROLEO para `fuelInvoice()` (sólo gasolineras). |
 | `timeout` / `Timeout` | | Timeout HTTP. Default 120s (JS: 120000 ms). |
 | `tipo_personeria` / `TipoPersoneria` | | Código de personería del RTU. Sólo aplica a RDON. Default `"1"`. |
 
 Ver detalles y ejemplos por lenguaje en los READMEs respectivos.
+
+## Subsidio combustibles — frases automáticas (9/18 y 9/19)
+
+Durante el **periodo de subsidio** (2026-04-27 a 2026-07-27), SAT exige incluir frases especiales `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19` en facturas de combustible. **El SDK las agrega automáticamente** — las integraciones existentes no necesitan cambios.
+
+Para deshabilitar la auto-inyección (ej. presupuesto agotado):
+- Por ENV VAR (sin deploy): `DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1`
+- Por código: `auto_fuel_subsidy_frases=false` al inicializar el cliente o en cada llamada.
+
+Para control total (frases propias): usa `frases=[...]` en lugar de `tipo_frase`/`escenario`.
 
 ## Variables de entorno
 
@@ -134,6 +146,8 @@ Ver detalles y ejemplos por lenguaje en los READMEs respectivos.
 DIGIFACT_TAXID=12345678
 DIGIFACT_USERNAME=FELUSER
 DIGIFACT_PASSWORD=...
+# Deshabilita auto-inyección de frases de subsidio sin tocar código:
+# DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1
 ```
 
 ## Estructura del repositorio

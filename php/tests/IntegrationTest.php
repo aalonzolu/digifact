@@ -5,6 +5,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 use Digifact\Fel\DigifactClient;
 use Digifact\Fel\DigifactException;
+use Digifact\Fel\DigifactValidationException;
 use Digifact\Fel\DteBuilder;
 use Digifact\Fel\DteResult;
 use Digifact\Fel\TaxHelper;
@@ -196,6 +197,100 @@ class IntegrationTest extends TestCase
         ]);
     }
 
+
+
+    // ── Unit tests: fuel frases ───────────────────────────────────────────────
+
+    private function getBuyer(): array
+    {
+        return DteBuilder::buyerCf();
+    }
+
+    private function getFuelItems(): array
+    {
+        return [['description' => 'SUPER', 'qty' => 1, 'price' => 35.00,
+                 'petroleo_amount' => 4.70, 'petroleo_code' => '1', 'type' => 'Bien']];
+    }
+
+    private function getFrasesFromPayload(array $payload): array
+    {
+        $ai = $payload['Seller']['AdditionlInfo'] ?? [];
+        $frases = [];
+        for ($i = 0; $i + 1 < count($ai); $i += 2) {
+            $frases[] = [$ai[$i]['Value'], $ai[$i + 1]['Value']];
+        }
+        return $frases;
+    }
+
+    public function testFuelFrasesNonFuelNoSubsidy(): void
+    {
+        $buyer = DteBuilder::buyerNit('12345678', 'TEST');
+        $payload = DteBuilder::buildFact('12345678', 'TEST', 'CALLE', $buyer,
+            [['description' => 'X', 'qty' => 1, 'price' => 100.0]]);
+        $frases = $this->getFrasesFromPayload($payload);
+        $this->assertCount(1, $frases, 'Regular invoice must have only the base frase');
+        $this->assertNotContains(['9', '18'], $frases);
+        $this->assertNotContains(['9', '19'], $frases);
+    }
+
+    public function testFuelFrasesWithinWindowAutoInject(): void
+    {
+        $result = DteBuilder::resolveFuelFrases(null, '1', '1', '2026-06-01T10:00:00', true);
+        $pairs = array_map(fn($f) => [$f['tipo_frase'], $f['escenario']], $result);
+        $this->assertContains(['1', '1'], $pairs, 'Base frase must be present');
+        $this->assertContains(['9', '18'], $pairs, 'Escenario 18 must be auto-injected');
+        $this->assertContains(['9', '19'], $pairs, 'Escenario 19 must be auto-injected');
+        $this->assertCount(3, $result);
+    }
+
+    public function testFuelFrasesCustomNoAutoInject(): void
+    {
+        $custom = [['tipo_frase' => '2', 'escenario' => '1']];
+        $result = DteBuilder::resolveFuelFrases($custom, null, null, '2026-06-01T10:00:00', true);
+        $this->assertCount(1, $result);
+        $this->assertSame('2', $result[0]['tipo_frase']);
+        $pairs = array_map(fn($f) => [$f['tipo_frase'], $f['escenario']], $result);
+        $this->assertNotContains(['9', '18'], $pairs);
+    }
+
+    public function testFuelFrasesAutoDisabled(): void
+    {
+        $result = DteBuilder::resolveFuelFrases(null, '1', '1', '2026-06-01T10:00:00', false);
+        $this->assertCount(1, $result);
+        $pairs = array_map(fn($f) => [$f['tipo_frase'], $f['escenario']], $result);
+        $this->assertNotContains(['9', '18'], $pairs);
+        $this->assertNotContains(['9', '19'], $pairs);
+    }
+
+    public function testFuelFrasesDeduplication(): void
+    {
+        $dupes = [
+            ['tipo_frase' => '9', 'escenario' => '18'],
+            ['tipo_frase' => '9', 'escenario' => '18'],
+            ['tipo_frase' => '9', 'escenario' => '19'],
+        ];
+        $result = DteBuilder::resolveFuelFrases($dupes, null, null, '2026-06-01T10:00:00', true);
+        $this->assertCount(2, $result);
+    }
+
+    public function testFuelFrasesOutsideWindow(): void
+    {
+        $before = DteBuilder::resolveFuelFrases(null, '1', '1', '2026-04-26T10:00:00', true);
+        $this->assertCount(1, $before);
+        $after = DteBuilder::resolveFuelFrases(null, '1', '1', '2026-07-27T10:00:00', true);
+        $this->assertCount(1, $after);
+    }
+
+    public function testFuelFrasesMutualExclusivityRaises(): void
+    {
+        $this->expectException(DigifactValidationException::class);
+        DteBuilder::buildFactCombustible(
+            '12345678', 'TEST', 'CALLE',
+            $this->getBuyer(), $this->getFuelItems(),
+            'GEN', '1', null, null,
+            [['tipo_frase' => '1', 'escenario' => '1']]
+        );
+    }
 
 
     public function testLogin(): void

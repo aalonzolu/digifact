@@ -23,6 +23,8 @@ public sealed class DigifactClient : IDisposable
     private readonly string _tipoPersoneria;
     private readonly string? _tipoFrase;
     private readonly string? _escenario;
+    private readonly IReadOnlyList<FraseItem>? _frases;
+    private readonly bool? _autoFuelSubsidyFrases;
     private readonly string _branchCode;
     private readonly string _branchName;
     private readonly IReadOnlyDictionary<string, decimal> _petroleoRates;
@@ -71,6 +73,11 @@ public sealed class DigifactClient : IDisposable
         _tipoPersoneria = options.TipoPersoneria;
         _tipoFrase = options.TipoFrase;
         _escenario = options.Escenario;
+        if (options.Frases is not null && (options.TipoFrase is not null || options.Escenario is not null))
+            throw new DigifactValidationException(
+                "Frases and TipoFrase/Escenario are mutually exclusive; use one or the other.");
+        _frases = options.Frases;
+        _autoFuelSubsidyFrases = options.AutoFuelSubsidyFrases;
         _branchCode = string.IsNullOrEmpty(options.BranchCode) ? "1" : options.BranchCode;
         _branchName = string.IsNullOrEmpty(options.BranchName) ? "ESTABLECIMIENTO PRINCIPAL" : options.BranchName;
         _petroleoRates = options.PetroleoRates
@@ -413,14 +420,35 @@ public sealed class DigifactClient : IDisposable
     public async Task<DteResult> FuelInvoiceAsync(
         BuyerDetails buyer, IReadOnlyList<FuelLineItem> items,
         string? tipoFrase = null, string? escenario = null,
+        IReadOnlyList<FraseItem>? frases = null,
+        bool? autoFuelSubsidyFrases = null,
         CancellationToken ct = default)
     {
+        if (frases is not null && (tipoFrase is not null || escenario is not null))
+            throw new DigifactValidationException(
+                "Frases and TipoFrase/Escenario are mutually exclusive; use one or the other.");
+
+        // Resolve effective frases: per-call → constructor → legacy TipoFrase/Escenario
+        IReadOnlyList<FraseItem>? effFrases;
+        string? effTf, effEs;
+        if (frases is not null) { effFrases = frases; effTf = null; effEs = null; }
+        else if (_frases is not null) { effFrases = _frases; effTf = null; effEs = null; }
+        else { effFrases = null; (effTf, effEs) = ResolveFrase("FACT", tipoFrase, escenario); }
+
+        // Resolve auto_enabled
+        bool autoEnabled;
+        if (autoFuelSubsidyFrases.HasValue) autoEnabled = autoFuelSubsidyFrases.Value;
+        else if (_autoFuelSubsidyFrases.HasValue) autoEnabled = _autoFuelSubsidyFrases.Value;
+        else autoEnabled = true;
+        if (Environment.GetEnvironmentVariable("DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES") == "1")
+            autoEnabled = false;
+
         var (sellerName, sellerAddress) = await GetSellerInfoAsync(ct);
         var buyerNode = await ResolveBuyerAsync(buyer, ct);
         var resolved = ApplyPetroleoRates(items);
-        var (tf, es) = ResolveFrase("FACT", tipoFrase, escenario);
         var payload = DteBuilder.BuildFactCombustible(_taxid, sellerName, sellerAddress, buyerNode, resolved,
-            _afiliacionIva, tipoFrase: tf, escenario: es);
+            _afiliacionIva, tipoFrase: effTf, escenario: effEs,
+            frases: effFrases, autoFuelSubsidyFrases: autoEnabled);
         var data = await CertifyAsync(payload, ct);
         return DteResult.FromJson(data);
     }

@@ -288,6 +288,92 @@ class TestBuilderUnit(unittest.TestCase):
         self.assertIn("PETROLEO", total_descs)
 
 
+class TestFuelFrases(unittest.TestCase):
+    """Unit tests for frases[] / auto-fuel-subsidy-injection logic."""
+
+    def _buyer(self):
+        return {"TaxID": "CF", "Name": "CONSUMIDOR FINAL",
+                "AddressInfo": {"Address": "CIUDAD", "City": "01010",
+                                "District": "GUATEMALA", "State": "GUATEMALA", "Country": "GT"}}
+
+    def _items(self):
+        return [{"description": "SUPER", "qty": 1, "price": 35.00,
+                 "petroleo_amount": 4.70, "petroleo_code": "1", "type": "Bien"}]
+
+    def _additionl_frases(self, payload):
+        ai = payload["Seller"].get("AdditionlInfo", [])
+        frases = []
+        i = 0
+        while i + 1 < len(ai):
+            frases.append((ai[i]["Value"], ai[i + 1]["Value"]))
+            i += 2
+        return frases
+
+    def test_non_fuel_invoice_no_subsidy_frases(self):
+        from digifact_sdk.builder import build_fact
+        buyer = self._buyer()
+        payload = build_fact("12345678", "TEST", "CALLE", buyer=buyer,
+                             items=[{"description": "X", "qty": 1, "price": 100.0}])
+        frases = self._additionl_frases(payload)
+        self.assertEqual(len(frases), 1, "Regular invoice must have only the base frase")
+        self.assertNotIn(("9", "18"), frases)
+        self.assertNotIn(("9", "19"), frases)
+
+    def test_fuel_within_window_auto_inject(self):
+        from digifact_sdk.builder import build_fact_combustible, resolve_fuel_frases
+        # Use resolve_fuel_frases directly with a date known to be in window
+        result = resolve_fuel_frases(None, "1", "1", "2026-06-01T10:00:00", auto_enabled=True)
+        tf_es = [(f["tipo_frase"], f["escenario"]) for f in result]
+        self.assertIn(("1", "1"), tf_es, "Base frase must be present")
+        self.assertIn(("9", "18"), tf_es, "Escenario 18 must be auto-injected")
+        self.assertIn(("9", "19"), tf_es, "Escenario 19 must be auto-injected")
+        self.assertEqual(len(result), 3)
+
+    def test_fuel_custom_frases_no_auto_inject(self):
+        from digifact_sdk.builder import resolve_fuel_frases
+        custom = [{"tipo_frase": "2", "escenario": "1"}]
+        result = resolve_fuel_frases(custom, None, None, "2026-06-01T10:00:00", auto_enabled=True)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["tipo_frase"], "2")
+        self.assertNotIn(("9", "18"), [(f["tipo_frase"], f["escenario"]) for f in result])
+
+    def test_fuel_auto_disabled_no_inject(self):
+        from digifact_sdk.builder import resolve_fuel_frases
+        result = resolve_fuel_frases(None, "1", "1", "2026-06-01T10:00:00", auto_enabled=False)
+        tf_es = [(f["tipo_frase"], f["escenario"]) for f in result]
+        self.assertEqual(len(result), 1)
+        self.assertNotIn(("9", "18"), tf_es)
+        self.assertNotIn(("9", "19"), tf_es)
+
+    def test_deduplication(self):
+        from digifact_sdk.builder import resolve_fuel_frases
+        dupes = [{"tipo_frase": "9", "escenario": "18"},
+                 {"tipo_frase": "9", "escenario": "18"},
+                 {"tipo_frase": "9", "escenario": "19"}]
+        result = resolve_fuel_frases(dupes, None, None, "2026-06-01T10:00:00", auto_enabled=True)
+        self.assertEqual(len(result), 2)
+
+    def test_outside_window_no_inject(self):
+        from digifact_sdk.builder import resolve_fuel_frases
+        # Date before window
+        result_before = resolve_fuel_frases(None, "1", "1", "2026-04-26T10:00:00", auto_enabled=True)
+        self.assertEqual(len(result_before), 1)
+        # Date after window
+        result_after = resolve_fuel_frases(None, "1", "1", "2026-07-27T10:00:00", auto_enabled=True)
+        self.assertEqual(len(result_after), 1)
+
+    def test_mutual_exclusivity_raises(self):
+        from digifact_sdk.builder import build_fact_combustible
+        from digifact_sdk.exceptions import DigifactValidationError
+        with self.assertRaises(DigifactValidationError):
+            build_fact_combustible(
+                "12345678", "TEST", "CALLE",
+                buyer=self._buyer(), items=self._items(),
+                frases=[{"tipo_frase": "1", "escenario": "1"}],
+                tipo_frase="1",
+            )
+
+
 # ── Integration tests (shared client, 1 login total) ─────────────────────────
 
 @unittest.skipIf(SKIP, SKIP_REASON)

@@ -21,6 +21,9 @@ class DigifactClient
     private string $tipoPersoneria;
     private ?string $tipoFrase;
     private ?string $escenario;
+    /** @var array<array{tipo_frase:string,escenario:string}>|null */
+    private ?array $frases;
+    private ?bool $autoFuelSubsidyFrases;
     private string $branchCode;
     private string $branchName;
     private int $timeout;
@@ -103,6 +106,8 @@ class DigifactClient
         $this->tipoPersoneria = $config['tipo_personeria'] ?? '1';
         $this->tipoFrase = isset($config['tipo_frase']) ? (string)$config['tipo_frase'] : null;
         $this->escenario = isset($config['escenario']) ? (string)$config['escenario'] : null;
+        $this->frases = $config['frases'] ?? null;
+        $this->autoFuelSubsidyFrases = isset($config['auto_fuel_subsidy_frases']) ? (bool)$config['auto_fuel_subsidy_frases'] : null;
         $this->branchCode = (string)($config['branch_code'] ?? '1');
         $this->branchName = (string)($config['branch_name'] ?? 'ESTABLECIMIENTO PRINCIPAL');
         $this->timeout = (int)($config['timeout'] ?? 120);
@@ -116,6 +121,11 @@ class DigifactClient
         }
         if (!$this->token && !$this->password) {
             throw new \InvalidArgumentException("password or token is required");
+        }
+        if ($this->frases !== null && ($this->tipoFrase !== null || $this->escenario !== null)) {
+            throw new \InvalidArgumentException(
+                "frases and tipo_frase/escenario are mutually exclusive; use one or the other"
+            );
         }
 
         $env = $config['environment'] ?? 'test';
@@ -542,13 +552,49 @@ class DigifactClient
      */
     public function fuelInvoice(string|array $buyer, array $items, array $opts = []): DteResult
     {
+        $callFrases    = $opts['frases']    ?? null;
+        $callTipoFrase = $opts['tipo_frase'] ?? null;
+        $callEscenario = $opts['escenario']  ?? null;
+
+        if ($callFrases !== null && ($callTipoFrase !== null || $callEscenario !== null)) {
+            throw new DigifactValidationException(
+                'frases and tipo_frase/escenario are mutually exclusive; use one or the other'
+            );
+        }
+
+        // Resolve effective frases: per-call → constructor → legacy tipo_frase/escenario
+        if ($callFrases !== null) {
+            $effFrases    = $callFrases;
+            $effTipoFrase = null;
+            $effEscenario = null;
+        } elseif ($this->frases !== null) {
+            $effFrases    = $this->frases;
+            $effTipoFrase = null;
+            $effEscenario = null;
+        } else {
+            $effFrases = null;
+            [$effTipoFrase, $effEscenario] = $this->resolveFrase('FACT', $opts);
+        }
+
+        // Resolve auto_enabled
+        $callAuto = isset($opts['auto_fuel_subsidy_frases']) ? (bool)$opts['auto_fuel_subsidy_frases'] : null;
+        if ($callAuto !== null) {
+            $autoEnabled = $callAuto;
+        } elseif ($this->autoFuelSubsidyFrases !== null) {
+            $autoEnabled = $this->autoFuelSubsidyFrases;
+        } else {
+            $autoEnabled = true;
+        }
+        if (getenv('DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES') === '1') {
+            $autoEnabled = false;
+        }
+
         [$sellerName, $sellerAddress] = $this->getSellerInfo();
         $buyerArr = $this->resolveBuyer($buyer);
         $resolved = $this->applyPetroleoRates($items);
-        [$tipoFrase, $escenario] = $this->resolveFrase('FACT', $opts);
         $payload = DteBuilder::buildFactCombustible(
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $resolved, $this->afiliacionIva,
-            $tipoFrase, $escenario
+            $effTipoFrase, $effEscenario, $sellerEmail = null, $effFrases, $autoEnabled
         );
         $data = $this->certify($payload);
         return DteResult::fromArray($data);

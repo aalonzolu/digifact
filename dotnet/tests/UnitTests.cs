@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using Digifact.Fel;
 using Xunit;
@@ -305,5 +307,83 @@ public class UnitTests
             Taxid = "12345678", Username = "user", Token = "eyJhbGc...",
         });
         Assert.NotNull(client);
+    }
+}
+
+// ── Fuel frases unit tests ────────────────────────────────────────────────────
+
+public class FuelFrasesTests
+{
+    private static (string, string)[] PairsFromFrases(IReadOnlyList<FraseItem> frases) =>
+        frases.Select(f => (f.TipoFrase, f.Escenario)).ToArray();
+
+    [Fact]
+    public void ResolveFuelFrases_WithinWindow_AutoInjects18And19()
+    {
+        var result = DteBuilder.ResolveFuelFrases(null, "1", "1", "2026-06-01T10:00:00", autoEnabled: true);
+        var pairs = PairsFromFrases(result);
+        Assert.Contains(("1", "1"), pairs);
+        Assert.Contains(("9", "18"), pairs);
+        Assert.Contains(("9", "19"), pairs);
+        Assert.Equal(3, result.Count);
+    }
+
+    [Fact]
+    public void ResolveFuelFrases_CustomFrases_SuppressesAutoInject()
+    {
+        var custom = new[] { new FraseItem("2", "1") };
+        var result = DteBuilder.ResolveFuelFrases(custom, null, null, "2026-06-01T10:00:00", autoEnabled: true);
+        Assert.Single(result);
+        Assert.Equal("2", result[0].TipoFrase);
+        Assert.DoesNotContain(result, f => f.TipoFrase == "9");
+    }
+
+    [Fact]
+    public void ResolveFuelFrases_AutoDisabled_NoInject()
+    {
+        var result = DteBuilder.ResolveFuelFrases(null, "1", "1", "2026-06-01T10:00:00", autoEnabled: false);
+        Assert.Single(result);
+        Assert.DoesNotContain(result, f => f.TipoFrase == "9");
+    }
+
+    [Fact]
+    public void ResolveFuelFrases_Deduplication()
+    {
+        var dupes = new[] { new FraseItem("9", "18"), new FraseItem("9", "18"), new FraseItem("9", "19") };
+        var result = DteBuilder.ResolveFuelFrases(dupes, null, null, "2026-06-01T10:00:00", autoEnabled: true);
+        Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
+    public void ResolveFuelFrases_OutsideWindow_NoInject()
+    {
+        var before = DteBuilder.ResolveFuelFrases(null, "1", "1", "2026-04-26T10:00:00", autoEnabled: true);
+        Assert.Single(before);
+        var after = DteBuilder.ResolveFuelFrases(null, "1", "1", "2026-07-27T10:00:00", autoEnabled: true);
+        Assert.Single(after);
+    }
+
+    [Fact]
+    public void BuildFactCombustible_MutualExclusivity_Throws()
+    {
+        var buyer = DteBuilder.BuyerCf();
+        var items = new[] { new FuelLineItem { Description = "SUPER", Qty = 1, Price = 35m, PetroleoAmount = 4.70m } };
+        Assert.Throws<DigifactValidationException>(() =>
+            DteBuilder.BuildFactCombustible(
+                "12345678", "TEST", "CALLE", buyer, items,
+                tipoFrase: "1",
+                frases: new[] { new FraseItem("1", "1") }));
+    }
+
+    [Fact]
+    public void DigifactOptions_MutualExclusivity_Throws()
+    {
+        Assert.Throws<DigifactValidationException>(() =>
+            new DigifactClient(new DigifactOptions
+            {
+                Taxid = "12345678", Username = "user", Token = "tok",
+                TipoFrase = "1",
+                Frases = new[] { new FraseItem("1", "1") },
+            }));
     }
 }

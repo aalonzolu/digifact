@@ -7,6 +7,7 @@ Key intentional API typos preserved from the SAT/Digifact spec:
 """
 from __future__ import annotations
 
+import datetime as _datetime
 from decimal import Decimal
 from typing import Any
 
@@ -25,6 +26,60 @@ _ALT_ADENDA_TYPES = {"NABN", "RDON", "RECI"}
 
 def _adenda_code(doc_type: str) -> str:
     return ADENDA_CODE_ALT if doc_type in _ALT_ADENDA_TYPES else ADENDA_CODE_STD
+
+
+# ── Fuel subsidy frases (Tipo 9, Escenarios 18 / 19) ─────────────────────────
+FUEL_SUBSIDY_START = _datetime.date(2026, 4, 27)
+FUEL_SUBSIDY_END   = _datetime.date(2026, 7, 27)  # exclusive
+
+
+def _uniq_frases(frases: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    out: list[dict] = []
+    for f in frases:
+        key = f"{f['tipo_frase']}:{f['escenario']}"
+        if key not in seen:
+            seen.add(key)
+            out.append(f)
+    return out
+
+
+def _build_additionl_info_from_frases(frases: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    for f in frases:
+        out.append({"Name": "TipoFrase", "Data": "1", "Value": str(f["tipo_frase"])})
+        out.append({"Name": "Escenario", "Data": "1", "Value": str(f["escenario"])})
+    return out
+
+
+def _within_subsidy_window(issue_dt_iso: str) -> bool:
+    try:
+        d = _datetime.date.fromisoformat(issue_dt_iso[:10])
+        return FUEL_SUBSIDY_START <= d < FUEL_SUBSIDY_END
+    except (ValueError, TypeError):
+        return False
+
+
+def resolve_fuel_frases(
+    frases: list[dict] | None,
+    tipo_frase: str | None,
+    escenario: str | None,
+    issue_dt_iso: str,
+    auto_enabled: bool = True,
+) -> list[dict]:
+    """Return the final deduplicated frases list for a fuel invoice.
+
+    Called only after mutual-exclusivity validation (frases vs tipo_frase/escenario).
+    """
+    if frases is not None:
+        return _uniq_frases(frases)
+    result: list[dict] = []
+    if tipo_frase is not None and escenario is not None:
+        result.append({"tipo_frase": tipo_frase, "escenario": escenario})
+    if auto_enabled and _within_subsidy_window(issue_dt_iso):
+        result.append({"tipo_frase": "9", "escenario": "18"})
+        result.append({"tipo_frase": "9", "escenario": "19"})
+    return _uniq_frases(result)
 
 
 def default_frase(doc_type: str, afiliacion: str = "GEN") -> tuple[str, str] | None:
@@ -68,6 +123,7 @@ def _build_seller(
     afiliacion: str = "GEN",
     tipo_frase: str | None = "1",
     escenario: str | None = "1",
+    frases: list[dict] | None = None,
     branch_code: str = "1",
     branch_name: str = "ESTABLECIMIENTO PRINCIPAL",
     city: str = "01010",
@@ -97,7 +153,10 @@ def _build_seller(
     if email:
         seller["Contact"] = {"EmailList": {"Email": [email]}}
     # AdditionlInfo — intentional typo in API spec
-    if tipo_frase is not None and escenario is not None:
+    if frases is not None:
+        if frases:
+            seller["AdditionlInfo"] = _build_additionl_info_from_frases(frases)
+    elif tipo_frase is not None and escenario is not None:
         seller["AdditionlInfo"] = [
             {"Name": "TipoFrase", "Data": "1", "Value": tipo_frase},
             {"Name": "Escenario", "Data": "1", "Value": escenario},
@@ -1095,6 +1154,8 @@ def build_fact_combustible(
     afiliacion: str = "GEN",
     tipo_frase: str | None = None,
     escenario: str | None = None,
+    frases: list[dict] | None = None,
+    auto_fuel_subsidy_frases: bool = True,
     seller_email: str | None = None,
 ) -> dict:
     """Build a FACT payload for combustible (fuel) invoices.
@@ -1103,6 +1164,8 @@ def build_fact_combustible(
     and optionally ``petroleo_code`` (SAT code: "1"=SUPER, "2"=REGULAR,
     "4"=DIESEL; default "1"). Items without ``petroleo_amount`` are treated as
     regular IVA-only items and may coexist in the same invoice.
+
+    ``frases`` and ``tipo_frase``/``escenario`` are mutually exclusive.
 
     Example fuel item::
 
@@ -1113,6 +1176,12 @@ def build_fact_combustible(
 
         {"description": "FILTRO DE ACEITE", "qty": 1, "price": 45.00, "type": "Bien"}
     """
+    from .exceptions import DigifactValidationError
+    if frases is not None and (tipo_frase is not None or escenario is not None):
+        raise DigifactValidationError(
+            "frases and tipo_frase/escenario are mutually exclusive; use one or the other"
+        )
+
     issue_dt, _, _ = gt_now()
 
     line_items, grand_total, total_iva, total_petroleo = _build_fuel_items(items)
@@ -1121,13 +1190,14 @@ def build_fact_combustible(
     tf = tipo_frase if tipo_frase is not None else def_tf
     es = escenario if escenario is not None else def_es
 
+    resolved_frases = resolve_fuel_frases(frases, tf, es, issue_dt, auto_fuel_subsidy_frases)
+
     seller = _build_seller(
         taxid,
         seller_name,
         seller_address,
         afiliacion=afiliacion,
-        tipo_frase=tf,
-        escenario=es,
+        frases=resolved_frases,
         email=seller_email,
     )
 

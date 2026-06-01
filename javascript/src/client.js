@@ -29,6 +29,7 @@ import {
   buildCca,
   buildFactCombustible,
   defaultFrase,
+  resolveFuelFrases,
 } from './builder.js';
 
 const BASE_URLS = {
@@ -133,6 +134,8 @@ export class DigifactClient {
     tipo_personeria: tipoPersoneria = '1',
     tipo_frase: tipoFrase = null,
     escenario = null,
+    frases = null,
+    auto_fuel_subsidy_frases: autoFuelSubsidyFrases = null,
     branch_code: branchCode = '1',
     branch_name: branchName = 'ESTABLECIMIENTO PRINCIPAL',
     timeout = 120_000,
@@ -146,6 +149,8 @@ export class DigifactClient {
     this.tipoPersoneria = tipoPersoneria;
     this.tipoFrase = tipoFrase;
     this.escenario = escenario;
+    this.frases = frases ?? null;
+    this.autoFuelSubsidyFrases = autoFuelSubsidyFrases;
     this.branchCode = branchCode;
     this.branchName = branchName;
     this.timeout = timeout;
@@ -153,6 +158,9 @@ export class DigifactClient {
     if (!this.taxid) throw new TypeError('taxid must contain at least one digit');
     if (!username) throw new TypeError('username is required');
     if (!token && !password) throw new TypeError('password or token is required');
+    if (frases != null && (tipoFrase != null || escenario != null)) {
+      throw new TypeError('frases and tipo_frase/escenario are mutually exclusive; use one or the other');
+    }
 
     this._token = token;
     this._sellerName = sellerName;
@@ -443,11 +451,43 @@ export class DigifactClient {
    * ]);
    */
   async fuelInvoice(buyer, items, opts = {}) {
+    const callFrases = opts.frases ?? null;
+    const callTipoFrase = opts.tipo_frase ?? null;
+    const callEscenario = opts.escenario ?? null;
+
+    if (callFrases != null && (callTipoFrase != null || callEscenario != null)) {
+      throw new DigifactValidationError('frases and tipo_frase/escenario are mutually exclusive; use one or the other');
+    }
+
+    // Resolve effective frases: per-call → constructor → legacy tipo_frase/escenario
+    let effFrases, effTipoFrase, effEscenario;
+    if (callFrases != null) {
+      effFrases = callFrases; effTipoFrase = null; effEscenario = null;
+    } else if (this.frases != null) {
+      effFrases = this.frases; effTipoFrase = null; effEscenario = null;
+    } else {
+      effFrases = null;
+      [effTipoFrase, effEscenario] = this._resolveFrase('FACT', opts);
+    }
+
+    // Resolve auto_enabled
+    let autoEnabled;
+    const callAuto = opts.auto_fuel_subsidy_frases ?? null;
+    if (callAuto != null) autoEnabled = callAuto;
+    else if (this.autoFuelSubsidyFrases != null) autoEnabled = this.autoFuelSubsidyFrases;
+    else autoEnabled = true;
+    if (process.env.DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES === '1') autoEnabled = false;
+
     const [sellerName, sellerAddress] = await this._getSellerInfo();
     const buyerObj = await this._resolveBuyer(buyer);
     const resolved = this._applyPetroleoRates(items);
-    const [tipoFrase, escenario] = this._resolveFrase('FACT', opts);
-    const payload = buildFactCombustible(this.taxid, sellerName, sellerAddress, buyerObj, resolved, { afiliacion: this.afiliacionIva, tipoFrase, escenario });
+    const payload = buildFactCombustible(this.taxid, sellerName, sellerAddress, buyerObj, resolved, {
+      afiliacion: this.afiliacionIva,
+      tipoFrase: effTipoFrase,
+      escenario: effEscenario,
+      frases: effFrases,
+      autoFuelSubsidyFrases: autoEnabled,
+    });
     const data = await this._certify(payload);
     return DteResult.fromResponse(data);
   }

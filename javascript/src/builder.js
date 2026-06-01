@@ -51,6 +51,63 @@ function resolveFrase(docType, afiliacion, tipoFrase, escenario) {
   ];
 }
 
+// ── Fuel subsidy frases (Tipo 9, Escenarios 18 / 19) ─────────────────────────
+
+export const FUEL_SUBSIDY_START = new Date('2026-04-27T00:00:00');
+export const FUEL_SUBSIDY_END   = new Date('2026-07-27T00:00:00'); // exclusive
+
+export function uniqFrases(frases) {
+  const seen = new Set();
+  const out = [];
+  for (const f of frases) {
+    const key = `${f.tipo_frase}:${f.escenario}`;
+    if (!seen.has(key)) { seen.add(key); out.push(f); }
+  }
+  return out;
+}
+
+function buildAdditionlInfoFromFrases(frases) {
+  const out = [];
+  for (const f of frases) {
+    out.push({ Name: 'TipoFrase', Data: '1', Value: String(f.tipo_frase) });
+    out.push({ Name: 'Escenario', Data: '1', Value: String(f.escenario) });
+  }
+  return out;
+}
+
+export function withinSubsidyWindow(issueDtIso) {
+  try {
+    const d = new Date(issueDtIso.slice(0, 10) + 'T00:00:00');
+    return d >= FUEL_SUBSIDY_START && d < FUEL_SUBSIDY_END;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Return the final deduplicated frases list for a fuel invoice.
+ * Called only after mutual-exclusivity validation.
+ *
+ * @param {Array|null} frases  Explicit list or null.
+ * @param {string|null} tipoFrase  Legacy base TipoFrase or null.
+ * @param {string|null} escenario  Legacy base Escenario or null.
+ * @param {string} issueDtIso  ISO datetime string of the invoice.
+ * @param {boolean} [autoEnabled=true]
+ * @returns {Array<{tipo_frase:string, escenario:string}>}
+ */
+export function resolveFuelFrases(frases, tipoFrase, escenario, issueDtIso, autoEnabled = true) {
+  if (frases != null) return uniqFrases(frases);
+  const result = [];
+  if (tipoFrase != null && escenario != null) {
+    result.push({ tipo_frase: tipoFrase, escenario });
+  }
+  if (autoEnabled && withinSubsidyWindow(issueDtIso)) {
+    result.push({ tipo_frase: '9', escenario: '18' });
+    result.push({ tipo_frase: '9', escenario: '19' });
+  }
+  return uniqFrases(result);
+}
+
 // ── Buyer helpers ─────────────────────────────────────────────────────────────
 
 export function buyerCf() {
@@ -88,6 +145,7 @@ function buildSeller(taxid, name, address, {
   afiliacion = 'GEN',
   tipoFrase = '1',
   escenario = '1',
+  frases = null,
   branchCode = '1',
   branchName = 'ESTABLECIMIENTO PRINCIPAL',
   city = '01010',
@@ -108,7 +166,9 @@ function buildSeller(taxid, name, address, {
   };
   if (email) seller.Contact = { EmailList: { Email: [email] } };
   // AdditionlInfo — intentional typo per SAT/Digifact spec
-  if (tipoFrase !== null && escenario !== null) {
+  if (frases != null) {
+    if (frases.length > 0) seller.AdditionlInfo = buildAdditionlInfoFromFrases(frases);
+  } else if (tipoFrase !== null && escenario !== null) {
     seller.AdditionlInfo = [
       { Name: 'TipoFrase', Data: '1', Value: tipoFrase },
       { Name: 'Escenario', Data: '1', Value: escenario },
@@ -622,12 +682,18 @@ export function buildFactCombustible(taxid, sellerName, sellerAddress, buyer, it
   afiliacion = 'GEN',
   tipoFrase = null,
   escenario = null,
+  frases = null,
+  autoFuelSubsidyFrases = true,
   sellerEmail = null,
 } = {}) {
+  if (frases != null && (tipoFrase != null || escenario != null)) {
+    throw new Error('frases and tipoFrase/escenario are mutually exclusive; use one or the other');
+  }
   const [isoNow] = gtNow();
   const { lineItems, grandTotal, totalIva, totalPetroleo } = buildFuelItems(items);
   const [tf, es] = resolveFrase('FACT', afiliacion, tipoFrase, escenario);
-  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase: tf, escenario: es, email: sellerEmail });
+  const resolvedFrases = resolveFuelFrases(frases, tf, es, isoNow, autoFuelSubsidyFrases);
+  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, frases: resolvedFrases, email: sellerEmail });
 
   const totalTax = [{ Description: 'IVA', Amount: totalIva }];
   if (parseFloat(totalPetroleo) > 0) {

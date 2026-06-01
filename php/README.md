@@ -35,8 +35,10 @@ Ordenados de más usados a menos usados.
 | `branch_code` | `string` | `"1"` | **Código del establecimiento** del RTU. Un NIT puede tener varios establecimientos (1, 2, 3…); `"1"` suele ser el principal. Se escribe en `Seller.BranchInfo.Code`. |
 | `branch_name` | `string` | `"ESTABLECIMIENTO PRINCIPAL"` | **Nombre comercial** de la sucursal — el mismo que aparece en la patente de comercio. Se escribe en `Seller.BranchInfo.Name`. |
 | `afiliacion_iva` | `string` | `"GEN"` | Afiliación IVA del RTU: `"GEN"`, `"PEQ"` (pequeño contribuyente) o `"EXE"` (exento). |
-| `tipo_frase` | `?string` | `null` | Sobreescritura global de `TipoFrase` (raramente necesario). Ver [Configuración de frases](#configuración-de-frases-tipofrase--codigoescenario). |
-| `escenario` | `?string` | `null` | Sobreescritura global de `CodigoEscenario` (raramente necesario). |
+| `tipo_frase` | `?string` | `null` | Sobreescritura global de `TipoFrase` (legacy). **Mutuamente exclusivo con `frases`**. Ver [Configuración de frases](#configuración-de-frases-tipofrase--codigoescenario). |
+| `escenario` | `?string` | `null` | Sobreescritura global de `CodigoEscenario` (legacy). **Mutuamente exclusivo con `frases`**. |
+| `frases` | `?array` | `null` | Lista de frases `[['tipo_frase'=>..., 'escenario'=>...]]`. Reemplaza a `tipo_frase`/`escenario`. **Mutuamente exclusivo** con ellos. Ver [Configuración de frases](#configuración-de-frases-tipofrase--codigoescenario). |
+| `auto_fuel_subsidy_frases` | `?bool` | `null` | Controla la auto-inyección de frases 9/18 y 9/19 en combustible durante el subsidio. `null` = usar default (`true`). Ver [Subsidio combustible](#subsidio-combustible-frases-automáticas). |
 | `petroleo_rates` | `array<string,float>` | `[]` | Mapa código PETROLEO → tarifa por unidad (SUPER/REGULAR/DIESEL). Usado sólo por `fuelInvoice()` (gasolineras). |
 | `timeout` | `int` | `120` | Timeout HTTP en segundos. |
 | `tipo_personeria` | `string` | `"1"` | Código de `TipoPersoneria` del RTU. **Sólo aplica a RDON** (Recibo por Donación); ignóralo en los demás documentos. |
@@ -151,6 +153,30 @@ $result2 = $client->fuelInvoice('CF', [
 | `petroleo_amount` | `float` | — | Impuesto PETROLEO por unidad (omitir para ítems sólo-IVA) |
 | `petroleo_code` | `string` | `'1'` | `'1'`=SUPER, `'2'`=REGULAR, `'4'`=DIESEL. Si se usa sin `petroleo_amount`, el código debe estar en `petroleo_rates` o se lanza `DigifactValidationException`. |
 
+### Subsidio combustible — frases automáticas {#subsidio-combustible-frases-automáticas}
+
+Durante el **periodo de subsidio de combustibles** (2026-04-27 a 2026-07-27), SAT exige incluir frases especiales `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19`. **El SDK las agrega automáticamente** — no se necesita cambiar ningún código existente.
+
+```php
+// Sin cambios — el SDK agrega 9/18 y 9/19 automáticamente durante el subsidio
+$result = $client->fuelInvoice('CF', $items);
+
+// Deshabilitarlo por llamada
+$result = $client->fuelInvoice('CF', $items, ['auto_fuel_subsidy_frases' => false]);
+
+// Deshabilitarlo globalmente
+$client = new DigifactClient([..., 'auto_fuel_subsidy_frases' => false]);
+
+// Variable de entorno (sin tocar código): DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1
+
+// Frases completamente personalizadas (deshabilita auto-inyección)
+$result = $client->fuelInvoice('CF', $items, [
+    'frases' => [['tipo_frase' => '1', 'escenario' => '1']],
+]);
+```
+
+> **Nota:** `frases` y `tipo_frase`/`escenario` son **mutuamente exclusivos** — pasarlos juntos lanza `DigifactValidationException`.
+
 ## Configuración de frases (TipoFrase / CodigoEscenario)
 
 Todo DTE (excepto FESP) debe llevar un par `TipoFrase` + `CodigoEscenario`
@@ -159,7 +185,7 @@ IVA** y el **régimen ISR** registrados en el RTU del emisor. El SDK elige
 valores por defecto adecuados, por lo que **no** hace falta configurar nada
 en el caso común.
 
-**Orden de precedencia:** `$opts` por llamada → globales del constructor (`tipo_frase` / `escenario`) → tabla de valores por defecto.
+**Orden de precedencia:** `$opts` por llamada → globales del constructor → tabla de valores por defecto.
 
 **Tabla de valores por defecto:**
 
@@ -174,10 +200,26 @@ en el caso común.
 | FACT / FCAM / NCRE / NDEB | PEQ | `2` | `1` | |
 | FACT / FCAM / NCRE / NDEB | EXE | `4` | `1` | Exento |
 
-Tanto `tipo_frase` como `escenario` se pueden sobreescribir de forma
-independiente — por llamada (dentro del arreglo `$opts`) o globalmente al
-construir el cliente. Cuando se omiten, cada uno cae al global del constructor
-y luego a la tabla de valores por defecto.
+### Nueva API: `frases[]` (múltiples frases)
+
+Usa `frases` cuando necesitas enviar **más de un par**. Es **mutuamente exclusivo** con `tipo_frase`/`escenario`.
+
+```php
+// Lista explícita (deshabilita auto-inyección)
+$client->fuelInvoice('CF', $items, [
+    'frases' => [['tipo_frase' => '1', 'escenario' => '1']],
+]);
+
+// Globalmente en el constructor
+$client = new DigifactClient([
+    'taxid' => '12345678', 'username' => 'FELUSER', 'password' => '...',
+    'frases' => [['tipo_frase' => '1', 'escenario' => '2']],  // ISR régimen opcional
+]);
+```
+
+### API legacy: `tipo_frase` / `escenario`
+
+Siguen funcionando exactamente como antes para integraciones existentes.
 
 ```php
 // Sobreescritura por llamada (uno o ambos)
@@ -208,7 +250,7 @@ Todos los métodos devuelven `DteResult` (con `$result->authNumber`, `series`, `
 |--------|-------|---------|-------------|
 | `invoice()` | `invoice(string\|array $buyer, array $items, array $opts = [])` | `DteResult` | Emite FACT, FCAM, FESP, FPEQ, NABN, RDON, RECI o FACT+CUI según `$opts['doc_type']`. |
 | `ccaInvoice()` | `ccaInvoice(string\|array $buyer, array $items, array $cobros, array $opts = [])` | `DteResult` | FACT con complemento CCA (cobro por cuenta ajena). |
-| `fuelInvoice()` | `fuelInvoice(string\|array $buyer, array $items, array $opts = [])` | `DteResult` | FACT con complemento combustible (IVA + PETROLEO). |
+| `fuelInvoice()` | `fuelInvoice(string\|array $buyer, array $items, array $opts = [])` | `DteResult` | FACT con complemento combustible (IVA + PETROLEO). `$opts['frases']`, `$opts['auto_fuel_subsidy_frases']`. Auto-inyecta 9/18 y 9/19 durante el subsidio. |
 | `creditNote()` | `creditNote(string\|array $buyer, array $items, array $origin, string $reason, array $opts = [])` | `DteResult` | Nota de crédito (NCRE) — ajuste parcial del documento origen. |
 | `debitNote()` | `debitNote(string\|array $buyer, array $items, array $origin, string $reason, array $opts = [])` | `DteResult` | Nota de débito (NDEB). |
 | `creditNoteTotal()` | `creditNoteTotal(string $authNumber, string $issueDateTime, string $reason = '...', string $reference = '')` | `array` | Nota de crédito total sobre un DTE previo. |
