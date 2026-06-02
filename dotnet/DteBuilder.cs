@@ -82,15 +82,19 @@ internal static class DteBuilder
         return out_;
     }
 
-    private static JsonArray BuildAdditionlInfoFromFrases(IReadOnlyList<FraseItem> frases)
+    private static JsonArray BuildFrasesSection(IReadOnlyList<FraseItem> frases)
     {
         var arr = new JsonArray();
         foreach (var f in frases)
-        {
-            arr.Add(new JsonObject { ["Name"] = "TipoFrase", ["Data"] = "1", ["Value"] = f.TipoFrase });
-            arr.Add(new JsonObject { ["Name"] = "Escenario",  ["Data"] = "1", ["Value"] = f.Escenario });
-        }
+            arr.Add(new JsonObject { ["TipoFrase"] = f.TipoFrase, ["CodigoEscenario"] = f.Escenario });
         return arr;
+    }
+
+    private static JsonObject WithFrases(JsonObject payload, IReadOnlyList<FraseItem>? frases)
+    {
+        if (frases is { Count: > 0 })
+            payload["Frases"] = BuildFrasesSection(frases);
+        return payload;
     }
 
     internal static bool WithinSubsidyWindow(string issueDtIso)
@@ -232,12 +236,9 @@ internal static class DteBuilder
                 ["EmailList"] = new JsonObject { ["Email"] = new JsonArray { (JsonNode)email } },
             };
 
-        // AdditionlInfo — intentional typo per SAT/Digifact spec
-        if (frases is not null)
-        {
-            if (frases.Count > 0) seller["AdditionlInfo"] = BuildAdditionlInfoFromFrases(frases);
-        }
-        else if (tipoFrase is not null && escenario is not null)
+        // AdditionlInfo — intentional typo per SAT/Digifact spec.
+        // When frases list is provided, frases go to top-level Frases section (not here).
+        if (frases is null && tipoFrase is not null && escenario is not null)
             seller["AdditionlInfo"] = new JsonArray
             {
                 new JsonObject { ["Name"] = "TipoFrase", ["Data"] = "1", ["Value"] = tipoFrase },
@@ -396,7 +397,7 @@ internal static class DteBuilder
         var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail, frases: frases);
         var amt = string.IsNullOrEmpty(amountStr) ? grandTotal : amountStr;
 
-        return new JsonObject
+        return WithFrases(new JsonObject
         {
             ["Version"] = "1.00",
             ["CountryCode"] = "GT",
@@ -412,7 +413,7 @@ internal static class DteBuilder
             ["Items"] = lineItems,
             ["Totals"] = BuildTotals(grandTotal, totalIva, taxable),
             ["AdditionalDocumentInfo"] = BuildAdenda(docType, amt, items.Count, observaciones),
-        };
+        }, frases);
     }
 
     internal static JsonObject BuildFcam(
@@ -442,7 +443,7 @@ internal static class DteBuilder
             });
         }
 
-        return new JsonObject
+        return WithFrases(new JsonObject
         {
             ["Version"] = "1.00",
             ["CountryCode"] = "GT",
@@ -464,7 +465,7 @@ internal static class DteBuilder
                     },
                 },
             },
-        };
+        }, frases);
     }
 
     internal static JsonObject BuildNdeb(
@@ -479,7 +480,7 @@ internal static class DteBuilder
         var (tf, es) = ResolveFrase("NDEB", afiliacion, tipoFrase, escenario);
         var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail, frases: frases);
 
-        return new JsonObject
+        return WithFrases(new JsonObject
         {
             ["Version"] = "1.00",
             ["CountryCode"] = "GT",
@@ -508,7 +509,7 @@ internal static class DteBuilder
                     },
                 },
             },
-        };
+        }, frases);
     }
 
     internal static JsonObject BuildNcre(
@@ -523,7 +524,7 @@ internal static class DteBuilder
         var (tf, es) = ResolveFrase("NCRE", afiliacion, tipoFrase, escenario);
         var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail, frases: frases);
 
-        return new JsonObject
+        return WithFrases(new JsonObject
         {
             ["Version"] = "1.00",
             ["CountryCode"] = "GT",
@@ -552,7 +553,7 @@ internal static class DteBuilder
                     },
                 },
             },
-        };
+        }, frases);
     }
 
     internal static JsonObject BuildFesp(
@@ -620,7 +621,7 @@ internal static class DteBuilder
         var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, "4", "4", email: sellerEmail, frases: frases);
         var amt = string.IsNullOrEmpty(amountStr) ? grandTotal : amountStr;
 
-        return new JsonObject
+        return WithFrases(new JsonObject
         {
             ["Version"] = "1.00",
             ["CountryCode"] = "GT",
@@ -640,7 +641,7 @@ internal static class DteBuilder
             ["Items"] = lineItems,
             ["Totals"] = BuildTotals(grandTotal, "0.000000", false),
             ["AdditionalDocumentInfo"] = BuildAdenda("RDON", amt, items.Count, observaciones),
-        };
+        }, frases);
     }
 
     internal static JsonObject BuildFpeq(
@@ -655,7 +656,7 @@ internal static class DteBuilder
         var seller = BuildSeller(taxid, sellerName, sellerAddress, "PEQ", tf, es, email: sellerEmail, frases: frases);
         var amt = string.IsNullOrEmpty(amountStr) ? grandTotal : amountStr;
 
-        return new JsonObject
+        return WithFrases(new JsonObject
         {
             ["Version"] = "1.00",
             ["CountryCode"] = "GT",
@@ -666,7 +667,7 @@ internal static class DteBuilder
             ["Items"] = lineItems,
             ["Totals"] = BuildTotals(grandTotal, "0.000000", false),
             ["AdditionalDocumentInfo"] = BuildAdenda("FPEQ", amt, items.Count, observaciones),
-        };
+        }, frases);
     }
 
     internal static JsonObject BuildReci(
@@ -690,7 +691,7 @@ internal static class DteBuilder
             new() { ["Name"] = "UnidadAcademica", ["Data"] = (JsonNode?)null, ["Value"] = academicUnit },
         };
 
-        return new JsonObject
+        return WithFrases(new JsonObject
         {
             ["Version"] = "1.00",
             ["CountryCode"] = "GT",
@@ -701,7 +702,7 @@ internal static class DteBuilder
             ["Items"] = lineItems,
             ["Totals"] = BuildTotals(grandTotal, "0.000000", false),
             ["AdditionalDocumentInfo"] = BuildAdenda("RECI", amt, items.Count, observaciones, extraInfo),
-        };
+        }, frases);
     }
 
     internal static JsonObject BuildCca(
@@ -734,7 +735,7 @@ internal static class DteBuilder
                 },
             });
 
-        return new JsonObject
+        return WithFrases(new JsonObject
         {
             ["Version"] = "1.00",
             ["CountryCode"] = "GT",
@@ -756,7 +757,7 @@ internal static class DteBuilder
                     },
                 },
             },
-        };
+        }, frases);
     }
 
     // ── Combustible (fuel) builder ────────────────────────────────────────────
@@ -903,7 +904,7 @@ internal static class DteBuilder
         if (decimal.Parse(totalPetroleo, CultureInfo.InvariantCulture) > 0m)
             totalTaxArray.Add(new JsonObject { ["Description"] = "PETROLEO", ["Amount"] = totalPetroleo });
 
-        return new JsonObject
+        return WithFrases(new JsonObject
         {
             ["Version"]     = "1.00",
             ["CountryCode"] = "GT",
@@ -918,6 +919,6 @@ internal static class DteBuilder
                 ["GrandTotal"] = new JsonObject { ["InvoiceTotal"] = grandTotal },
             },
             ["AdditionalDocumentInfo"] = BuildFuelAdenda(),
-        };
+        }, resolvedFrases);
     }
 }

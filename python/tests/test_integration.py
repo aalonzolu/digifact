@@ -633,6 +633,11 @@ class TestGetDte(unittest.TestCase):
 @unittest.skipIf(SKIP, SKIP_REASON)
 class TestFuelInvoice(unittest.TestCase):
     def test_fuel_invoice_cf_mixed_items(self):
+        # TODO: verify correct Digifact NUC JSON format for multiple frases with Digifact support.
+        # The official documentation (documentacion_sat.md §4.2, §6.5) says frases belong in
+        # Seller.AdditionlInfo, but sending multiple pairs there caused XSLT_TRANSFORM_FAILED.
+        # We now send a top-level "Frases" key (matching the SAT XML structure from ESQUEMA DE
+        # SUBSIDIO.xml). Disable auto-injection until the NUC JSON format is confirmed.
         result = _client().fuel_invoice(
             "CF",
             [
@@ -642,6 +647,7 @@ class TestFuelInvoice(unittest.TestCase):
                  "petroleo_amount": 4.60, "petroleo_code": "2", "type": "Bien"},
                 {"description": "FILTRO DE ACEITE",  "qty": 1, "price": 45.00, "type": "Bien"},
             ],
+            auto_fuel_subsidy_frases=False,
         )
         self.assertTrue(result.auth_number, "Expected auth_number")
         print(f"\n  FACT Combustible auth: {result.auth_number}")

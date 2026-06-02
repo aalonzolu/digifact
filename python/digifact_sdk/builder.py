@@ -44,12 +44,13 @@ def _uniq_frases(frases: list[dict]) -> list[dict]:
     return out
 
 
-def _build_additionl_info_from_frases(frases: list[dict]) -> list[dict]:
-    out: list[dict] = []
-    for f in frases:
-        out.append({"Name": "TipoFrase", "Data": "1", "Value": str(f["tipo_frase"])})
-        out.append({"Name": "Escenario", "Data": "1", "Value": str(f["escenario"])})
-    return out
+def _build_frases_section(frases: list[dict]) -> list[dict]:
+    """Build the top-level Frases payload array from a frases list.
+
+    Maps to <dte:Frases><dte:Frase TipoFrase="..." CodigoEscenario="..."/></dte:Frases>
+    in the SAT FEL XML — a sibling of Seller/Buyer/Items, NOT inside AdditionlInfo.
+    """
+    return [{"TipoFrase": str(f["tipo_frase"]), "CodigoEscenario": str(f["escenario"])} for f in frases]
 
 
 def _within_subsidy_window(issue_dt_iso: str) -> bool:
@@ -155,11 +156,10 @@ def _build_seller(
     }
     if email:
         seller["Contact"] = {"EmailList": {"Email": [email]}}
-    # AdditionlInfo — intentional typo in API spec
-    if frases is not None:
-        if frases:
-            seller["AdditionlInfo"] = _build_additionl_info_from_frases(frases)
-    elif tipo_frase is not None and escenario is not None:
+    # AdditionlInfo — intentional typo in API spec.
+    # When frases list is provided, frases go to the top-level Frases section of
+    # the payload (not here); omit AdditionlInfo entirely for the frase fields.
+    if frases is None and tipo_frase is not None and escenario is not None:
         seller["AdditionlInfo"] = [
             {"Name": "TipoFrase", "Data": "1", "Value": tipo_frase},
             {"Name": "Escenario", "Data": "1", "Value": escenario},
@@ -413,11 +413,13 @@ def build_fact(
         "Header": header,
         "Seller": seller,
         "Buyer": buyer,
-        "ThirdParties": None,
-        "Items": line_items,
-        "Totals": _build_totals(totals, taxable=taxable),
-        "AdditionalDocumentInfo": adenda,
     }
+    if frases:
+        payload["Frases"] = _build_frases_section(frases)
+    payload["ThirdParties"] = None
+    payload["Items"] = line_items
+    payload["Totals"] = _build_totals(totals, taxable=taxable)
+    payload["AdditionalDocumentInfo"] = adenda
     return payload
 
 
@@ -480,6 +482,7 @@ def build_fcam(
         "Header": {"DocType": "FCAM", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
+        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=True),
@@ -539,6 +542,7 @@ def build_ndeb(
         "Header": {"DocType": "NDEB", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
+        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=True),
@@ -625,6 +629,7 @@ def build_ncre(
         "Header": {"DocType": "NCRE", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
+        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=True),
@@ -706,6 +711,7 @@ def build_nabn(
         "Header": {"DocType": "NABN", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
+        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=False),
@@ -823,6 +829,7 @@ def build_rdon(
         },
         "Seller": seller,
         "Buyer": buyer,
+        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=False),
@@ -873,6 +880,7 @@ def build_fpeq(
         "Header": {"DocType": "FPEQ", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
+        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=False),
@@ -931,6 +939,7 @@ def build_reci(
         "Header": {"DocType": "RECI", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
+        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=False),
@@ -1039,6 +1048,7 @@ def build_cca(
         "Header": {"DocType": "FACT", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
+        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=True),
@@ -1226,12 +1236,16 @@ def build_fact_combustible(
     if float(total_petroleo) > 0.0:
         total_tax.append({"Description": "PETROLEO", "Amount": total_petroleo})
 
-    return {
+    combustible_payload: dict[str, Any] = {
         "Version": "1.00",
         "CountryCode": "GT",
         "Header": {"DocType": "FACT", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
+    }
+    if resolved_frases:
+        combustible_payload["Frases"] = _build_frases_section(resolved_frases)
+    combustible_payload.update({
         "ThirdParties": None,
         "Items": line_items,
         "Totals": {
@@ -1239,4 +1253,5 @@ def build_fact_combustible(
             "GrandTotal": {"InvoiceTotal": grand_total},
         },
         "AdditionalDocumentInfo": _build_fuel_adenda(),
-    }
+    })
+    return combustible_payload

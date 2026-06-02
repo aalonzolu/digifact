@@ -37,14 +37,12 @@ class DteBuilder
         return $out;
     }
 
-    private static function buildAdditionlInfoFromFrases(array $frases): array
+    private static function buildFrasesSection(array $frases): array
     {
-        $out = [];
-        foreach ($frases as $f) {
-            $out[] = ['Name' => 'TipoFrase', 'Data' => '1', 'Value' => (string)$f['tipo_frase']];
-            $out[] = ['Name' => 'Escenario',  'Data' => '1', 'Value' => (string)$f['escenario']];
-        }
-        return $out;
+        return array_map(fn($f) => [
+            'TipoFrase'      => (string)$f['tipo_frase'],
+            'CodigoEscenario' => (string)$f['escenario'],
+        ], $frases);
     }
 
     private static function withinSubsidyWindow(string $issueDtIso): bool
@@ -238,12 +236,9 @@ class DteBuilder
         if ($email !== null) {
             $seller['Contact'] = ['EmailList' => ['Email' => [$email]]];
         }
-        // AdditionlInfo — intentional typo per SAT/Digifact spec
-        if ($frases !== null) {
-            if (count($frases) > 0) {
-                $seller['AdditionlInfo'] = self::buildAdditionlInfoFromFrases($frases);
-            }
-        } elseif ($tipoFrase !== null && $escenario !== null) {
+        // AdditionlInfo — intentional typo per SAT/Digifact spec.
+        // When frases list is provided, frases go to the top-level Frases section (not here).
+        if ($frases === null && $tipoFrase !== null && $escenario !== null) {
             $seller['AdditionlInfo'] = [
                 ['Name' => 'TipoFrase', 'Data' => '1', 'Value' => $tipoFrase],
                 ['Name' => 'Escenario',  'Data' => '1', 'Value' => $escenario],
@@ -426,6 +421,7 @@ class DteBuilder
             'Header'      => $header,
             'Seller'      => $seller,
             'Buyer'       => $buyer,
+            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, $totalIva, $taxable),
@@ -477,6 +473,7 @@ class DteBuilder
             'Header'      => ['DocType' => 'FCAM', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
+            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
@@ -523,6 +520,7 @@ class DteBuilder
             'Header'      => ['DocType' => 'NDEB', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
+            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
@@ -576,6 +574,7 @@ class DteBuilder
             'Header'      => ['DocType' => 'NCRE', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
+            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
@@ -688,6 +687,7 @@ class DteBuilder
             ],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
+            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, '0.000000', false),
@@ -730,6 +730,7 @@ class DteBuilder
             'Header'      => ['DocType' => 'FPEQ', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
+            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, '0.000000', false),
@@ -776,6 +777,7 @@ class DteBuilder
             'Header'      => ['DocType' => 'RECI', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
+            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, '0.000000', false),
@@ -832,6 +834,7 @@ class DteBuilder
             'Header'      => ['DocType' => 'FACT', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
+            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
@@ -1012,6 +1015,7 @@ class DteBuilder
             'Header'      => ['DocType' => 'FACT', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
+            ...($resolvedFrases ? ['Frases' => self::buildFrasesSection($resolvedFrases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => [

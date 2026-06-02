@@ -66,13 +66,8 @@ export function uniqFrases(frases) {
   return out;
 }
 
-function buildAdditionlInfoFromFrases(frases) {
-  const out = [];
-  for (const f of frases) {
-    out.push({ Name: 'TipoFrase', Data: '1', Value: String(f.tipo_frase) });
-    out.push({ Name: 'Escenario', Data: '1', Value: String(f.escenario) });
-  }
-  return out;
+function buildFrasesSection(frases) {
+  return frases.map(f => ({ TipoFrase: String(f.tipo_frase), CodigoEscenario: String(f.escenario) }));
 }
 
 export function withinSubsidyWindow(issueDtIso) {
@@ -168,10 +163,9 @@ function buildSeller(taxid, name, address, {
     },
   };
   if (email) seller.Contact = { EmailList: { Email: [email] } };
-  // AdditionlInfo — intentional typo per SAT/Digifact spec
-  if (frases != null) {
-    if (frases.length > 0) seller.AdditionlInfo = buildAdditionlInfoFromFrases(frases);
-  } else if (tipoFrase !== null && escenario !== null) {
+  // AdditionlInfo — intentional typo per SAT/Digifact spec.
+  // When frases list is provided, frases go to top-level Frases section (not here).
+  if (frases == null && tipoFrase !== null && escenario !== null) {
     seller.AdditionlInfo = [
       { Name: 'TipoFrase', Data: '1', Value: tipoFrase },
       { Name: 'Escenario', Data: '1', Value: escenario },
@@ -331,7 +325,9 @@ export function buildFact(taxid, sellerName, sellerAddress, buyer, items, {
 
   return {
     Version: '1.00', CountryCode: 'GT', Header: header,
-    Seller: seller, Buyer: buyer, ThirdParties: null,
+    Seller: seller, Buyer: buyer,
+    ...(frases ? { Frases: buildFrasesSection(frases) } : {}),
+    ThirdParties: null,
     Items: lineItems, Totals: buildTotals(grandTotal, totalIva, taxable),
     AdditionalDocumentInfo: adenda,
   };
@@ -356,7 +352,9 @@ export function buildFcam(taxid, sellerName, sellerAddress, buyer, items, paymen
   return {
     Version: '1.00', CountryCode: 'GT',
     Header: { DocType: 'FCAM', IssuedDateTime: isoNow, Currency: 'GTQ' },
-    Seller: seller, Buyer: buyer, ThirdParties: null,
+    Seller: seller, Buyer: buyer,
+    ...(frases ? { Frases: buildFrasesSection(frases) } : {}),
+    ThirdParties: null,
     Items: lineItems, Totals: buildTotals(grandTotal, totalIva, true),
     AdditionalDocumentInfo: {
       AdditionalInfo: [{
@@ -378,7 +376,9 @@ export function buildNdeb(taxid, sellerName, sellerAddress, buyer, items, origin
   return {
     Version: '1.00', CountryCode: 'GT',
     Header: { DocType: 'NDEB', IssuedDateTime: isoNow, Currency: 'GTQ' },
-    Seller: seller, Buyer: buyer, ThirdParties: null,
+    Seller: seller, Buyer: buyer,
+    ...(frases ? { Frases: buildFrasesSection(frases) } : {}),
+    ThirdParties: null,
     Items: lineItems, Totals: buildTotals(grandTotal, totalIva, true),
     AdditionalDocumentInfo: {
       AdditionalInfo: [{
@@ -407,7 +407,9 @@ export function buildNcre(taxid, sellerName, sellerAddress, buyer, items, origin
   return {
     Version: '1.00', CountryCode: 'GT',
     Header: { DocType: 'NCRE', IssuedDateTime: isoNow, Currency: 'GTQ' },
-    Seller: seller, Buyer: buyer, ThirdParties: null,
+    Seller: seller, Buyer: buyer,
+    ...(frases ? { Frases: buildFrasesSection(frases) } : {}),
+    ThirdParties: null,
     Items: lineItems, Totals: buildTotals(grandTotal, totalIva, true),
     AdditionalDocumentInfo: {
       AdditionalInfo: [{
@@ -495,7 +497,9 @@ export function buildRdon(taxid, sellerName, sellerAddress, buyer, items, tipoPe
       DocType: 'RDON', IssuedDateTime: isoNow, Currency: 'GTQ',
       AdditionalIssueDocInfo: [{ Name: 'TipoPersoneria', Data: null, Value: tipoPersoneria }],
     },
-    Seller: seller, Buyer: buyer, ThirdParties: null,
+    Seller: seller, Buyer: buyer,
+    ...(frases ? { Frases: buildFrasesSection(frases) } : {}),
+    ThirdParties: null,
     Items: lineItems,
     Totals: { GrandTotal: { InvoiceTotal: grandTotal } },
     AdditionalDocumentInfo: adenda,
@@ -518,7 +522,9 @@ export function buildFpeq(taxid, sellerName, sellerAddress, buyer, items, {
   return {
     Version: '1.00', CountryCode: 'GT',
     Header: { DocType: 'FPEQ', IssuedDateTime: isoNow, Currency: 'GTQ' },
-    Seller: seller, Buyer: buyer, ThirdParties: null,
+    Seller: seller, Buyer: buyer,
+    ...(frases ? { Frases: buildFrasesSection(frases) } : {}),
+    ThirdParties: null,
     Items: lineItems,
     Totals: { GrandTotal: { InvoiceTotal: grandTotal } },
     AdditionalDocumentInfo: adenda,
@@ -547,7 +553,9 @@ export function buildReci(taxid, sellerName, sellerAddress, buyer, items, {
   return {
     Version: '1.00', CountryCode: 'GT',
     Header: { DocType: 'RECI', IssuedDateTime: isoNow, Currency: 'GTQ' },
-    Seller: seller, Buyer: buyer, ThirdParties: null,
+    Seller: seller, Buyer: buyer,
+    ...(frases ? { Frases: buildFrasesSection(frases) } : {}),
+    ThirdParties: null,
     Items: lineItems,
     Totals: { GrandTotal: { InvoiceTotal: grandTotal } },
     AdditionalDocumentInfo: adenda,
@@ -579,7 +587,9 @@ export function buildCca(taxid, sellerName, sellerAddress, buyer, items, cobros,
   return {
     Version: '1.00', CountryCode: 'GT',
     Header: { DocType: 'FACT', IssuedDateTime: isoNow, Currency: 'GTQ' },
-    Seller: seller, Buyer: buyer, ThirdParties: null,
+    Seller: seller, Buyer: buyer,
+    ...(frases ? { Frases: buildFrasesSection(frases) } : {}),
+    ThirdParties: null,
     Items: lineItems, Totals: buildTotals(grandTotal, totalIva, true),
     AdditionalDocumentInfo: {
       AdditionalInfo: [{
@@ -707,7 +717,9 @@ export function buildFactCombustible(taxid, sellerName, sellerAddress, buyer, it
   return {
     Version: '1.00', CountryCode: 'GT',
     Header: { DocType: 'FACT', IssuedDateTime: isoNow, Currency: 'GTQ' },
-    Seller: seller, Buyer: buyer, ThirdParties: null,
+    Seller: seller, Buyer: buyer,
+    ...(resolvedFrases.length ? { Frases: buildFrasesSection(resolvedFrases) } : {}),
+    ThirdParties: null,
     Items: lineItems,
     Totals: {
       TotalTaxes: { TotalTax: totalTax },

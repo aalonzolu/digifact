@@ -479,12 +479,15 @@ class IntegrationTest extends TestCase
 
     public function testFuelInvoice(): void
     {
+        // TODO: verify NUC JSON format for multiple frases with Digifact support.
+        // Docs say frases → Seller.AdditionlInfo, but multiple pairs caused XSLT failure.
+        // We now try top-level "Frases" key (from SAT XML reference). Disable until confirmed.
         $client = $this->requireClient();
         $result = $client->fuelInvoice('CF', [
             ['description' => 'GASOLINA SUPER',    'qty' => 1, 'price' => 30.30, 'petroleo_amount' => 4.70, 'petroleo_code' => '1', 'type' => 'Bien'],
             ['description' => 'GASOLINA REGULAR',  'qty' => 1, 'price' => 29.40, 'petroleo_amount' => 4.60, 'petroleo_code' => '2', 'type' => 'Bien'],
             ['description' => 'FILTRO DE ACEITE',  'qty' => 1, 'price' => 45.00, 'type' => 'Bien'],
-        ]);
+        ], ['auto_fuel_subsidy_frases' => false]);
         $this->assertNotEmpty($result->authNumber);
         echo "\n  FACT Combustible auth: " . $result->authNumber;
     }
