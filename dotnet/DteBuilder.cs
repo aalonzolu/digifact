@@ -65,6 +65,70 @@ internal static class DteBuilder
         return (tipoFrase ?? defTf, escenario ?? defEs);
     }
 
+    // ── Fuel subsidy frases (Tipo 9, Escenarios 18 / 19) ─────────────────────
+
+    internal static readonly DateOnly FuelSubsidyStart = new(2026, 4, 27); // inclusive
+    internal static readonly DateOnly FuelSubsidyEnd   = new(2026, 7, 27); // exclusive
+
+    private static IReadOnlyList<FraseItem> UniqFrases(IEnumerable<FraseItem> frases)
+    {
+        var seen = new HashSet<string>();
+        var out_ = new List<FraseItem>();
+        foreach (var f in frases)
+        {
+            var key = $"{f.TipoFrase}:{f.Escenario}";
+            if (seen.Add(key)) out_.Add(f);
+        }
+        return out_;
+    }
+
+    private static JsonArray BuildAdditionlInfoFromFrases(IReadOnlyList<FraseItem> frases)
+    {
+        var arr = new JsonArray();
+        foreach (var f in frases)
+        {
+            arr.Add(new JsonObject { ["Name"] = "TipoFrase", ["Data"] = "1", ["Value"] = f.TipoFrase });
+            arr.Add(new JsonObject { ["Name"] = "Escenario",  ["Data"] = "1", ["Value"] = f.Escenario });
+        }
+        return arr;
+    }
+
+    internal static bool WithinSubsidyWindow(string issueDtIso)
+    {
+        try
+        {
+            var d = DateOnly.Parse(issueDtIso[..10]);
+            return d >= FuelSubsidyStart && d < FuelSubsidyEnd;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Return the final deduplicated frases list for a fuel invoice.
+    /// Called only after mutual-exclusivity validation.
+    /// </summary>
+    internal static IReadOnlyList<FraseItem> ResolveFuelFrases(
+        IReadOnlyList<FraseItem>? frases,
+        string? tipoFrase, string? escenario,
+        string issueDtIso, bool autoEnabled = true)
+    {
+        if (frases is not null)
+        {
+            if (frases.Count == 0)
+                throw new DigifactValidationException("Frases must contain at least one TipoFrase/Escenario pair.");
+            return UniqFrases(frases);
+        }
+        var result = new List<FraseItem>();
+        if (tipoFrase is not null && escenario is not null)
+            result.Add(new FraseItem(tipoFrase, escenario));
+        if (autoEnabled && WithinSubsidyWindow(issueDtIso))
+        {
+            result.Add(new FraseItem("9", "18"));
+            result.Add(new FraseItem("9", "19"));
+        }
+        return UniqFrases(result);
+    }
+
     // ── Buyer helpers ─────────────────────────────────────────────────────────
 
     internal static JsonObject BuyerCf() => new()
@@ -131,7 +195,8 @@ internal static class DteBuilder
         string? tipoFrase = "1", string? escenario = "1",
         string branchCode = "1", string branchName = "ESTABLECIMIENTO PRINCIPAL",
         string city = "01010", string district = "Guatemala", string state = "Guatemala",
-        string country = "GT", string? email = null)
+        string country = "GT", string? email = null,
+        IReadOnlyList<FraseItem>? frases = null)
     {
         var seller = new JsonObject
         {
@@ -168,7 +233,11 @@ internal static class DteBuilder
             };
 
         // AdditionlInfo — intentional typo per SAT/Digifact spec
-        if (tipoFrase is not null && escenario is not null)
+        if (frases is not null)
+        {
+            if (frases.Count > 0) seller["AdditionlInfo"] = BuildAdditionlInfoFromFrases(frases);
+        }
+        else if (tipoFrase is not null && escenario is not null)
             seller["AdditionlInfo"] = new JsonArray
             {
                 new JsonObject { ["Name"] = "TipoFrase", ["Data"] = "1", ["Value"] = tipoFrase },
@@ -317,13 +386,14 @@ internal static class DteBuilder
         string taxid, string sellerName, string sellerAddress, JsonObject buyer,
         IReadOnlyList<LineItem> items, string docType = "FACT",
         string afiliacion = "GEN", string? tipoFrase = null, string? escenario = null,
-        string amountStr = "", string observaciones = "-", string? sellerEmail = null)
+        string amountStr = "", string observaciones = "-", string? sellerEmail = null,
+        IReadOnlyList<FraseItem>? frases = null)
     {
         var (isoNow, _, _) = TaxHelper.GtNow();
         bool taxable = !NoIvaTypes.Contains(docType);
         var (lineItems, grandTotal, totalIva) = BuildItems(items, taxable);
         var (tf, es) = ResolveFrase(docType, afiliacion, tipoFrase, escenario);
-        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail);
+        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail, frases: frases);
         var amt = string.IsNullOrEmpty(amountStr) ? grandTotal : amountStr;
 
         return new JsonObject
@@ -349,12 +419,13 @@ internal static class DteBuilder
         string taxid, string sellerName, string sellerAddress, JsonObject buyer,
         IReadOnlyList<LineItem> items, IReadOnlyList<PaymentTerm> paymentTerms,
         string afiliacion = "GEN", string? sellerEmail = null,
-        string? tipoFrase = null, string? escenario = null)
+        string? tipoFrase = null, string? escenario = null,
+        IReadOnlyList<FraseItem>? frases = null)
     {
         var (isoNow, _, _) = TaxHelper.GtNow();
         var (lineItems, grandTotal, totalIva) = BuildItems(items, true);
         var (tf, es) = ResolveFrase("FCAM", afiliacion, tipoFrase, escenario);
-        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail);
+        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail, frases: frases);
 
         var fcamData = new JsonArray();
         for (int idx = 0; idx < paymentTerms.Count; idx++)
@@ -400,12 +471,13 @@ internal static class DteBuilder
         string taxid, string sellerName, string sellerAddress, JsonObject buyer,
         IReadOnlyList<LineItem> items, OriginDoc origin, string reason,
         string afiliacion = "GEN", string? sellerEmail = null,
-        string? tipoFrase = null, string? escenario = null)
+        string? tipoFrase = null, string? escenario = null,
+        IReadOnlyList<FraseItem>? frases = null)
     {
         var (isoNow, _, _) = TaxHelper.GtNow();
         var (lineItems, grandTotal, totalIva) = BuildItems(items, true);
         var (tf, es) = ResolveFrase("NDEB", afiliacion, tipoFrase, escenario);
-        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail);
+        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail, frases: frases);
 
         return new JsonObject
         {
@@ -443,12 +515,13 @@ internal static class DteBuilder
         string taxid, string sellerName, string sellerAddress, JsonObject buyer,
         IReadOnlyList<LineItem> items, OriginDoc origin, string reason,
         string afiliacion = "GEN", string? sellerEmail = null,
-        string? tipoFrase = null, string? escenario = null)
+        string? tipoFrase = null, string? escenario = null,
+        IReadOnlyList<FraseItem>? frases = null)
     {
         var (isoNow, _, _) = TaxHelper.GtNow();
         var (lineItems, grandTotal, totalIva) = BuildItems(items, true);
         var (tf, es) = ResolveFrase("NCRE", afiliacion, tipoFrase, escenario);
-        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail);
+        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail, frases: frases);
 
         return new JsonObject
         {
@@ -540,11 +613,11 @@ internal static class DteBuilder
         string taxid, string sellerName, string sellerAddress, JsonObject buyer,
         IReadOnlyList<LineItem> items, string tipoPersoneria,
         string afiliacion = "GEN", string amountStr = "", string observaciones = "-",
-        string? sellerEmail = null)
+        string? sellerEmail = null, IReadOnlyList<FraseItem>? frases = null)
     {
         var (isoNow, _, _) = TaxHelper.GtNow();
         var (lineItems, grandTotal, _) = BuildItems(items, false);
-        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, "4", "4", email: sellerEmail);
+        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, "4", "4", email: sellerEmail, frases: frases);
         var amt = string.IsNullOrEmpty(amountStr) ? grandTotal : amountStr;
 
         return new JsonObject
@@ -573,12 +646,13 @@ internal static class DteBuilder
     internal static JsonObject BuildFpeq(
         string taxid, string sellerName, string sellerAddress, JsonObject buyer,
         IReadOnlyList<LineItem> items, string amountStr = "", string observaciones = "-",
-        string? sellerEmail = null, string? tipoFrase = null, string? escenario = null)
+        string? sellerEmail = null, string? tipoFrase = null, string? escenario = null,
+        IReadOnlyList<FraseItem>? frases = null)
     {
         var (isoNow, _, _) = TaxHelper.GtNow();
         var (lineItems, grandTotal, _) = BuildItems(items, false);
         var (tf, es) = ResolveFrase("FPEQ", "PEQ", tipoFrase, escenario);
-        var seller = BuildSeller(taxid, sellerName, sellerAddress, "PEQ", tf, es, email: sellerEmail);
+        var seller = BuildSeller(taxid, sellerName, sellerAddress, "PEQ", tf, es, email: sellerEmail, frases: frases);
         var amt = string.IsNullOrEmpty(amountStr) ? grandTotal : amountStr;
 
         return new JsonObject
@@ -600,11 +674,12 @@ internal static class DteBuilder
         IReadOnlyList<LineItem> items, string afiliacion = "GEN",
         string amountStr = "", string observaciones = "-",
         string studentName = "Estudiante", string studentId = "000000000",
-        string academicUnit = "01", string? sellerEmail = null)
+        string academicUnit = "01", string? sellerEmail = null,
+        IReadOnlyList<FraseItem>? frases = null)
     {
         var (isoNow, _, _) = TaxHelper.GtNow();
         var (lineItems, grandTotal, _) = BuildItems(items, false);
-        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, "4", "5", email: sellerEmail);
+        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, "4", "5", email: sellerEmail, frases: frases);
         var amt = string.IsNullOrEmpty(amountStr) ? grandTotal : amountStr;
 
         var extraInfo = new List<JsonObject>
@@ -633,12 +708,13 @@ internal static class DteBuilder
         string taxid, string sellerName, string sellerAddress, JsonObject buyer,
         IReadOnlyList<LineItem> items, IReadOnlyList<CcaCobro> cobros,
         string afiliacion = "GEN", string? sellerEmail = null,
-        string? tipoFrase = null, string? escenario = null)
+        string? tipoFrase = null, string? escenario = null,
+        IReadOnlyList<FraseItem>? frases = null)
     {
         var (isoNow, _, _) = TaxHelper.GtNow();
         var (lineItems, grandTotal, totalIva) = BuildItems(items, true);
         var (tf, es) = ResolveFrase("FACT", afiliacion, tipoFrase, escenario);
-        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail);
+        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail, frases: frases);
 
         var ccaData = new JsonArray();
         foreach (var cobro in cobros)
@@ -805,12 +881,20 @@ internal static class DteBuilder
         string afiliacion = "GEN",
         string? tipoFrase = null,
         string? escenario = null,
-        string? sellerEmail = null)
+        string? sellerEmail = null,
+        IReadOnlyList<FraseItem>? frases = null,
+        bool autoFuelSubsidyFrases = true)
     {
+        if (frases is not null && (tipoFrase is not null || escenario is not null))
+            throw new DigifactValidationException(
+                "Frases and TipoFrase/Escenario are mutually exclusive; use one or the other.");
+
         var (isoNow, _, _) = TaxHelper.GtNow();
         var (lineItems, grandTotal, totalIva, totalPetroleo) = BuildFuelItems(items);
         var (tf, es) = ResolveFrase("FACT", afiliacion, tipoFrase, escenario);
-        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion, tf, es, email: sellerEmail);
+        var resolvedFrases = ResolveFuelFrases(frases, tf, es, isoNow, autoFuelSubsidyFrases);
+        var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion,
+            email: sellerEmail, frases: resolvedFrases);
 
         var totalTaxArray = new JsonArray
         {

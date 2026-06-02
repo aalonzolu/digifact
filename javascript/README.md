@@ -20,8 +20,10 @@ Ordenados de más usados a menos usados.
 | `branch_code` | `string` | `"1"` | **Código del establecimiento** del RTU. Se escribe en `Seller.BranchInfo.Code`. |
 | `branch_name` | `string` | `"ESTABLECIMIENTO PRINCIPAL"` | **Nombre comercial** de la sucursal — el mismo que aparece en la patente de comercio. Se escribe en `Seller.BranchInfo.Name`. |
 | `afiliacion_iva` | `string` | `"GEN"` | Afiliación IVA del RTU: `"GEN"`, `"PEQ"` o `"EXE"`. |
-| `tipo_frase` | `string \| null` | `null` | Sobreescritura global de `TipoFrase` (raramente necesario). Ver [frases](#configuración-de-frases-tipofrase--codigoescenario). |
-| `escenario` | `string \| null` | `null` | Sobreescritura global de `CodigoEscenario` (raramente necesario). |
+| `tipo_frase` | `string \| null` | `null` | Sobreescritura global de `TipoFrase` (legacy). **Mutuamente exclusivo con `frases`**. Ver [frases](#configuración-de-frases-tipofrase--codigoescenario). |
+| `escenario` | `string \| null` | `null` | Sobreescritura global de `CodigoEscenario` (legacy). **Mutuamente exclusivo con `frases`**. |
+| `frases` | `Array<{tipo_frase, escenario}> \| null` | `null` | Lista de frases. Reemplaza a `tipo_frase`/`escenario`. **Mutuamente exclusivo** con ellos. Ver [frases](#configuración-de-frases-tipofrase--codigoescenario). |
+| `auto_fuel_subsidy_frases` | `boolean \| null` | `null` | Controla la auto-inyección de frases 9/18 y 9/19 en combustible durante el subsidio. `null` = usar default (`true`). Ver [subsidio combustible](#subsidio-combustible-frases-automáticas). |
 | `petroleo_rates` | `Object<string,number>` | `{}` | Mapa código PETROLEO → tarifa por unidad. Usado sólo por `fuelInvoice()` (gasolineras). |
 | `timeout` | `number` | `120000` | Timeout HTTP en **ms**. |
 | `tipo_personeria` | `string` | `"1"` | Código de `TipoPersoneria` del RTU. **Sólo aplica a RDON** (Recibo por Donación); ignóralo en los demás documentos. |
@@ -136,13 +138,35 @@ const fuel2 = await client.fuelInvoice('CF', [
 | `petroleo_amount` | `number` | — | Impuesto PETROLEO por unidad (omitir para ítems sólo-IVA) |
 | `petroleo_code` | `string` | `'1'` | `'1'`=SUPER, `'2'`=REGULAR, `'4'`=DIESEL. Si se usa sin `petroleo_amount`, el código debe estar en `petroleo_rates` o se lanza `DigifactValidationError`. |
 
+### Subsidio combustible — frases automáticas
+
+Durante el **periodo de subsidio de combustibles** (2026-04-27 (incl.) a 2026-07-27 (excl.)), SAT exige incluir frases especiales `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19`. **El SDK las agrega automáticamente** — no se necesita cambiar ningún código existente.
+
+```js
+// Sin cambios — el SDK agrega 9/18 y 9/19 automáticamente durante el subsidio
+const result = await client.fuelInvoice('CF', items);
+
+// Deshabilitarlo por llamada
+await client.fuelInvoice('CF', items, { auto_fuel_subsidy_frases: false });
+
+// Deshabilitarlo globalmente
+const client = new DigifactClient({ ..., auto_fuel_subsidy_frases: false });
+
+// Variable de entorno (sin tocar código): DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1
+
+// Frases completamente personalizadas (deshabilita auto-inyección)
+await client.fuelInvoice('CF', items, { frases: [{ tipo_frase: '1', escenario: '1' }] });
+```
+
+> **Nota:** `frases` y `tipo_frase`/`escenario` son **mutuamente exclusivos** — pasarlos juntos lanza un error.
+
 ## Configuración de frases (TipoFrase / CodigoEscenario)
 
 Todo DTE (excepto FESP) debe llevar un par `TipoFrase` + `CodigoEscenario`. El
 SDK elige valores por defecto adecuados, por lo que **no** hace falta
 configurar nada en el caso común.
 
-**Orden de precedencia:** `opts` por llamada → globales del constructor (`tipo_frase` / `escenario`) → tabla de valores por defecto.
+**Orden de precedencia:** `opts` por llamada → globales del constructor → tabla de valores por defecto.
 
 **Tabla de valores por defecto:**
 
@@ -157,10 +181,26 @@ configurar nada en el caso común.
 | FACT / FCAM / NCRE / NDEB | PEQ | `2` | `1` | |
 | FACT / FCAM / NCRE / NDEB | EXE | `4` | `1` | Exento |
 
-Tanto `tipo_frase` como `escenario` se pueden sobreescribir de forma
-independiente — por llamada (dentro del objeto `opts`) o globalmente al
-construir el cliente. Cuando se omiten, cada uno cae al global del constructor
-y luego a la tabla de valores por defecto.
+### Nueva API: `frases[]` (múltiples frases)
+
+Usa `frases` cuando necesitas enviar **más de un par** TipoFrase/Escenario. Es **mutuamente exclusivo** con `tipo_frase`/`escenario`.
+
+```js
+// Lista explícita de frases (deshabilita auto-inyección)
+await client.fuelInvoice('CF', items, {
+  frases: [{ tipo_frase: '1', escenario: '1' }],
+});
+
+// Globalmente en el constructor
+const client = new DigifactClient({
+  taxid: '12345678', username: 'FELUSER', password: '...',
+  frases: [{ tipo_frase: '1', escenario: '2' }],  // ISR régimen opcional simplificado
+});
+```
+
+### API legacy: `tipo_frase` / `escenario`
+
+Siguen funcionando exactamente como antes para integraciones existentes.
 
 ```js
 // Sobreescritura por llamada (uno o ambos)
@@ -188,7 +228,7 @@ Todos los métodos son **asíncronos**. Los de emisión devuelven `DteResult` co
 |--------|-------|-------------|
 | `invoice()` | `invoice(buyer, items, opts = {})` | Emite FACT, FCAM, FESP, FPEQ, NABN, RDON o RECI según `opts.doc_type`. |
 | `ccaInvoice()` | `ccaInvoice(buyer, items, cobros, opts = {})` | FACT con complemento CCA. |
-| `fuelInvoice()` | `fuelInvoice(buyer, items, opts = {})` | FACT con complemento combustible (IVA + PETROLEO). |
+| `fuelInvoice()` | `fuelInvoice(buyer, items, opts = {})` | FACT con complemento combustible (IVA + PETROLEO). `opts.frases`, `opts.auto_fuel_subsidy_frases`. Auto-inyecta 9/18 y 9/19 durante el subsidio. |
 | `creditNote()` | `creditNote(buyer, items, origin, reason, opts = {})` | Nota de crédito (NCRE). |
 | `debitNote()` | `debitNote(buyer, items, origin, reason, opts = {})` | Nota de débito (NDEB). |
 | `creditNoteTotal()` | `creditNoteTotal(authNumber, issueDateTime, reason = '...', reference = '')` | Nota de crédito total. Devuelve `object`. |

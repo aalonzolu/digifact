@@ -127,6 +127,8 @@ class DigifactClient:
         tipo_personeria: str = "1",
         tipo_frase: str | None = None,
         escenario: str | None = None,
+        frases: list[dict] | None = None,
+        auto_fuel_subsidy_frases: bool | None = None,
         branch_code: str = "1",
         branch_name: str = "ESTABLECIMIENTO PRINCIPAL",
         timeout: int = 120,
@@ -140,6 +142,10 @@ class DigifactClient:
             raise ValueError("username is required")
         if not token and not password:
             raise ValueError("password or token is required")
+        if frases is not None and (tipo_frase is not None or escenario is not None):
+            raise ValueError(
+                "frases and tipo_frase/escenario are mutually exclusive; use one or the other"
+            )
 
         self.padded_taxid = pad_taxid(taxid)
         self.username = username
@@ -149,6 +155,8 @@ class DigifactClient:
         self.tipo_personeria = tipo_personeria
         self.tipo_frase = tipo_frase
         self.escenario = escenario
+        self.frases = frases
+        self.auto_fuel_subsidy_frases = auto_fuel_subsidy_frases
         self.branch_code = branch_code
         self.branch_name = branch_name
         self.timeout = timeout
@@ -369,7 +377,12 @@ class DigifactClient:
         """
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
-        tf, es = self._resolve_frase(doc_type, tipo_frase, escenario)
+        if self.frases is not None and tipo_frase is None and escenario is None:
+            eff_frases = self.frases
+            tf = es = None
+        else:
+            eff_frases = None
+            tf, es = self._resolve_frase(doc_type, tipo_frase, escenario)
 
         if doc_type == "FCAM":
             if not payment_terms:
@@ -386,6 +399,7 @@ class DigifactClient:
                 observaciones=observaciones,
                 tipo_frase=tf,
                 escenario=es,
+                frases=eff_frases,
             )
         elif doc_type == "FESP":
             payload = build_fesp(
@@ -406,6 +420,7 @@ class DigifactClient:
                 afiliacion=self.afiliacion_iva,
                 amount_str=amount_str,
                 observaciones=observaciones,
+                frases=eff_frases,
             )
         elif doc_type == "RDON":
             tp = tipo_personeria or self.tipo_personeria
@@ -419,6 +434,7 @@ class DigifactClient:
                 afiliacion=self.afiliacion_iva,
                 amount_str=amount_str,
                 observaciones=observaciones,
+                frases=eff_frases,
             )
         elif doc_type == "FPEQ":
             payload = build_fpeq(
@@ -431,6 +447,7 @@ class DigifactClient:
                 observaciones=observaciones,
                 tipo_frase=tf,
                 escenario=es,
+                frases=eff_frases,
             )
         elif doc_type == "RECI":
             payload = build_reci(
@@ -442,6 +459,7 @@ class DigifactClient:
                 afiliacion=self.afiliacion_iva,
                 amount_str=amount_str,
                 observaciones=observaciones,
+                frases=eff_frases,
             )
         else:
             # FACT (default), FACT CUI
@@ -455,6 +473,7 @@ class DigifactClient:
                 afiliacion=self.afiliacion_iva,
                 tipo_frase=tf,
                 escenario=es,
+                frases=eff_frases,
                 amount_str=amount_str,
                 observaciones=observaciones,
             )
@@ -474,7 +493,12 @@ class DigifactClient:
         """Emit a CCA (Cobro por Cuenta Ajena) FACT+CCA complemento."""
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
-        tf, es = self._resolve_frase("FACT", tipo_frase, escenario)
+        if self.frases is not None and tipo_frase is None and escenario is None:
+            eff_frases = self.frases
+            tf = es = None
+        else:
+            eff_frases = None
+            tf, es = self._resolve_frase("FACT", tipo_frase, escenario)
         payload = build_cca(
             self.taxid,
             seller_name,
@@ -485,6 +509,7 @@ class DigifactClient:
             afiliacion=self.afiliacion_iva,
             tipo_frase=tf,
             escenario=es,
+            frases=eff_frases,
         )
         data = self._certify(payload)
         return self._parse_result(data)
@@ -496,6 +521,8 @@ class DigifactClient:
         *,
         tipo_frase: str | None = None,
         escenario: str | None = None,
+        frases: list[dict] | None = None,
+        auto_fuel_subsidy_frases: bool | None = None,
     ) -> DteResult:
         """Emit a combustible (fuel) FACT invoice.
 
@@ -511,6 +538,15 @@ class DigifactClient:
               ``"4"`` DIESEL (default ``"1"``).
 
             Items without ``petroleo_amount`` are treated as regular IVA-only items.
+        frases:
+            Explicit list of ``{"tipo_frase": ..., "escenario": ...}`` dicts.
+            Mutually exclusive with ``tipo_frase``/``escenario``. When set,
+            auto-injection of subsidy frases (9/18, 9/19) is suppressed.
+        auto_fuel_subsidy_frases:
+            Override the client-level or default auto-injection behaviour.
+            ``None`` (default) falls back to the constructor setting, then
+            ``True``. Set to ``False`` (or ``DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1``)
+            to disable auto-injection.
 
         Example::
 
@@ -521,10 +557,39 @@ class DigifactClient:
                  "type": "Bien"},
             ])
         """
+        import os
+        from .exceptions import DigifactValidationError
+
+        if frases is not None and (tipo_frase is not None or escenario is not None):
+            raise DigifactValidationError(
+                "frases and tipo_frase/escenario are mutually exclusive; use one or the other"
+            )
+
+        # Resolve effective frases: per-call → constructor → legacy tipo_frase/escenario
+        eff_frases: list[dict] | None
+        eff_tf: str | None
+        eff_es: str | None
+        if frases is not None:
+            eff_frases, eff_tf, eff_es = frases, None, None
+        elif self.frases is not None:
+            eff_frases, eff_tf, eff_es = self.frases, None, None
+        else:
+            eff_frases = None
+            eff_tf, eff_es = self._resolve_frase("FACT", tipo_frase, escenario)
+
+        # Resolve auto_enabled
+        if auto_fuel_subsidy_frases is not None:
+            auto_enabled = auto_fuel_subsidy_frases
+        elif self.auto_fuel_subsidy_frases is not None:
+            auto_enabled = self.auto_fuel_subsidy_frases
+        else:
+            auto_enabled = True
+        if os.environ.get("DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES", "") == "1":
+            auto_enabled = False
+
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
         resolved = self._apply_petroleo_rates(items)
-        tf, es = self._resolve_frase("FACT", tipo_frase, escenario)
         payload = build_fact_combustible(
             self.taxid,
             seller_name,
@@ -532,8 +597,10 @@ class DigifactClient:
             buyer_dict,
             resolved,
             afiliacion=self.afiliacion_iva,
-            tipo_frase=tf,
-            escenario=es,
+            tipo_frase=eff_tf,
+            escenario=eff_es,
+            frases=eff_frases,
+            auto_fuel_subsidy_frases=auto_enabled,
         )
         data = self._certify(payload)
         return self._parse_result(data)
@@ -579,7 +646,12 @@ class DigifactClient:
         """
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
-        tf, es = self._resolve_frase("NCRE", tipo_frase, escenario)
+        if self.frases is not None and tipo_frase is None and escenario is None:
+            eff_frases = self.frases
+            tf = es = None
+        else:
+            eff_frases = None
+            tf, es = self._resolve_frase("NCRE", tipo_frase, escenario)
         payload = build_ncre(
             self.taxid,
             seller_name,
@@ -591,6 +663,7 @@ class DigifactClient:
             afiliacion=self.afiliacion_iva,
             tipo_frase=tf,
             escenario=es,
+            frases=eff_frases,
         )
         data = self._certify(payload)
         return self._parse_result(data)
@@ -616,7 +689,12 @@ class DigifactClient:
         """
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
-        tf, es = self._resolve_frase("NDEB", tipo_frase, escenario)
+        if self.frases is not None and tipo_frase is None and escenario is None:
+            eff_frases = self.frases
+            tf = es = None
+        else:
+            eff_frases = None
+            tf, es = self._resolve_frase("NDEB", tipo_frase, escenario)
         payload = build_ndeb(
             self.taxid,
             seller_name,
@@ -628,6 +706,7 @@ class DigifactClient:
             afiliacion=self.afiliacion_iva,
             tipo_frase=tf,
             escenario=es,
+            frases=eff_frases,
         )
         data = self._certify(payload)
         return self._parse_result(data)

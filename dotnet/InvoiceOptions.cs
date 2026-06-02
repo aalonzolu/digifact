@@ -35,3 +35,13 @@ public sealed record PaymentTerm(
     string Date,
     decimal Amount
 );
+
+/// <summary>
+/// A single TipoFrase / CodigoEscenario pair for the <c>Seller.AdditionlInfo</c> block.
+/// Use the <c>Frases</c> option on <see cref="DigifactOptions"/> or <c>FuelInvoiceAsync</c>
+/// to supply a list instead of the legacy <c>TipoFrase</c>/<c>Escenario</c> string parameters.
+/// Mutually exclusive with <c>TipoFrase</c>/<c>Escenario</c>.
+/// </summary>
+/// <param name="TipoFrase">SAT TipoFrase code, e.g. "1" or "9".</param>
+/// <param name="Escenario">SAT CodigoEscenario code, e.g. "1", "18", "19".</param>
+public sealed record FraseItem(string TipoFrase, string Escenario);

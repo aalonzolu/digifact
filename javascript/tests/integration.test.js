@@ -18,7 +18,7 @@ import { gtNow, padTaxid, fmt, calcIva, calcFuelLine } from '../src/tax.js';
 import { DteResult } from '../src/client.js';
 import {
   buildFact, buildFesp, buildNdeb, buildNcre, buyerCf, buyerNit,
-  buildFactCombustible,
+  buildFactCombustible, resolveFuelFrases,
 } from '../src/builder.js';
 
 const TAXID    = process.env.DIGIFACT_TAXID    || '';
@@ -250,6 +250,69 @@ describe('Unit: petroleo_rates auto-fill', () => {
   });
 });
 
+
+// ── Unit tests: fuel frases ───────────────────────────────────────────────────
+
+describe('Unit: fuel frases', () => {
+  const buyer = buyerCf();
+  const items = [{ description: 'SUPER', qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' }];
+
+  function getFrases(payload) {
+    const ai = payload.Seller.AdditionlInfo ?? [];
+    const frases = [];
+    for (let i = 0; i + 1 < ai.length; i += 2) frases.push([ai[i].Value, ai[i + 1].Value]);
+    return frases;
+  }
+
+  test('non-fuel invoice has only base frase, no 9/18 or 9/19', () => {
+    const payload = buildFact('12345678', 'TEST', 'CALLE', buyerNit('12345678', 'X'), [{ description: 'X', qty: 1, price: 100 }]);
+    const frases = getFrases(payload);
+    assert.equal(frases.length, 1);
+    assert.ok(!frases.some(([tf, es]) => tf === '9' && es === '18'));
+    assert.ok(!frases.some(([tf, es]) => tf === '9' && es === '19'));
+  });
+
+  test('resolveFuelFrases: within window auto-injects 9/18 and 9/19', () => {
+    const result = resolveFuelFrases(null, '1', '1', '2026-06-01T10:00:00', true);
+    const pairs = result.map(f => [f.tipo_frase, f.escenario]);
+    assert.deepStrictEqual(pairs, [['1', '1'], ['9', '18'], ['9', '19']]);
+  });
+
+  test('resolveFuelFrases: custom frases suppress auto-injection', () => {
+    const result = resolveFuelFrases([{ tipo_frase: '2', escenario: '1' }], null, null, '2026-06-01T10:00:00', true);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].tipo_frase, '2');
+  });
+
+  test('resolveFuelFrases: auto disabled does not inject', () => {
+    const result = resolveFuelFrases(null, '1', '1', '2026-06-01T10:00:00', false);
+    assert.equal(result.length, 1);
+    assert.ok(!result.some(f => f.tipo_frase === '9'));
+  });
+
+  test('resolveFuelFrases: deduplication', () => {
+    const dupes = [{ tipo_frase: '9', escenario: '18' }, { tipo_frase: '9', escenario: '18' }, { tipo_frase: '9', escenario: '19' }];
+    const result = resolveFuelFrases(dupes, null, null, '2026-06-01T10:00:00', true);
+    assert.equal(result.length, 2);
+  });
+
+  test('resolveFuelFrases: outside window does not inject', () => {
+    const before = resolveFuelFrases(null, '1', '1', '2026-04-26T10:00:00', true);
+    assert.equal(before.length, 1);
+    const after = resolveFuelFrases(null, '1', '1', '2026-07-27T10:00:00', true);
+    assert.equal(after.length, 1);
+  });
+
+  test('buildFactCombustible: mutual exclusivity throws', () => {
+    assert.throws(
+      () => buildFactCombustible('12345678', 'TEST', 'CALLE', buyer, items, {
+        frases: [{ tipo_frase: '1', escenario: '1' }],
+        tipoFrase: '1',
+      }),
+      /mutually exclusive/
+    );
+  });
+});
 
 // ── Integration tests (shared CLIENT singleton) ───────────────────────────────
 

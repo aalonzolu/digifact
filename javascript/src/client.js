@@ -29,6 +29,7 @@ import {
   buildCca,
   buildFactCombustible,
   defaultFrase,
+  resolveFuelFrases,
 } from './builder.js';
 
 const BASE_URLS = {
@@ -133,6 +134,8 @@ export class DigifactClient {
     tipo_personeria: tipoPersoneria = '1',
     tipo_frase: tipoFrase = null,
     escenario = null,
+    frases = null,
+    auto_fuel_subsidy_frases: autoFuelSubsidyFrases = null,
     branch_code: branchCode = '1',
     branch_name: branchName = 'ESTABLECIMIENTO PRINCIPAL',
     timeout = 120_000,
@@ -146,6 +149,8 @@ export class DigifactClient {
     this.tipoPersoneria = tipoPersoneria;
     this.tipoFrase = tipoFrase;
     this.escenario = escenario;
+    this.frases = frases ?? null;
+    this.autoFuelSubsidyFrases = autoFuelSubsidyFrases;
     this.branchCode = branchCode;
     this.branchName = branchName;
     this.timeout = timeout;
@@ -153,6 +158,9 @@ export class DigifactClient {
     if (!this.taxid) throw new TypeError('taxid must contain at least one digit');
     if (!username) throw new TypeError('username is required');
     if (!token && !password) throw new TypeError('password or token is required');
+    if (frases != null && (tipoFrase != null || escenario != null)) {
+      throw new TypeError('frases and tipo_frase/escenario are mutually exclusive; use one or the other');
+    }
 
     this._token = token;
     this._sellerName = sellerName;
@@ -375,7 +383,14 @@ export class DigifactClient {
     const docType = opts.doc_type || 'FACT';
     const amountStr = opts.amount_str || '';
     const observaciones = opts.observaciones || '-';
-    const [tipoFrase, escenario] = this._resolveFrase(docType, opts);
+
+    let effFrases, tipoFrase, escenario;
+    if (this.frases != null && opts.tipo_frase == null && opts.escenario == null) {
+      effFrases = this.frases; tipoFrase = null; escenario = null;
+    } else {
+      effFrases = null;
+      [tipoFrase, escenario] = this._resolveFrase(docType, opts);
+    }
 
     let payload;
 
@@ -383,7 +398,7 @@ export class DigifactClient {
       case 'FCAM': {
         const pt = opts.payment_terms;
         if (!pt || !pt.length) throw new DigifactValidationError('payment_terms is required for FCAM');
-        payload = buildFcam(this.taxid, sellerName, sellerAddress, buyerObj, items, pt, { afiliacion: this.afiliacionIva, tipoFrase, escenario });
+        payload = buildFcam(this.taxid, sellerName, sellerAddress, buyerObj, items, pt, { afiliacion: this.afiliacionIva, tipoFrase, escenario, frases: effFrases });
         break;
       }
       case 'FESP':
@@ -391,19 +406,19 @@ export class DigifactClient {
         break;
       case 'RDON': {
         const tp = opts.tipo_personeria || this.tipoPersoneria;
-        payload = buildRdon(this.taxid, sellerName, sellerAddress, buyerObj, items, tp, { afiliacion: this.afiliacionIva, amountStr, observaciones });
+        payload = buildRdon(this.taxid, sellerName, sellerAddress, buyerObj, items, tp, { afiliacion: this.afiliacionIva, amountStr, observaciones, frases: effFrases });
         break;
       }
       case 'FPEQ':
-        payload = buildFpeq(this.taxid, sellerName, sellerAddress, buyerObj, items, { amountStr, observaciones, tipoFrase, escenario });
+        payload = buildFpeq(this.taxid, sellerName, sellerAddress, buyerObj, items, { amountStr, observaciones, tipoFrase, escenario, frases: effFrases });
         break;
       case 'RECI':
-        payload = buildReci(this.taxid, sellerName, sellerAddress, buyerObj, items, { afiliacion: this.afiliacionIva, amountStr, observaciones });
+        payload = buildReci(this.taxid, sellerName, sellerAddress, buyerObj, items, { afiliacion: this.afiliacionIva, amountStr, observaciones, frases: effFrases });
         break;
       default:
         // FACT (default), NABN, or any standard type
         payload = buildFact(this.taxid, sellerName, sellerAddress, buyerObj, items, {
-          docType, afiliacion: this.afiliacionIva, amountStr, observaciones, tipoFrase, escenario,
+          docType, afiliacion: this.afiliacionIva, amountStr, observaciones, tipoFrase, escenario, frases: effFrases,
         });
         break;
     }
@@ -419,8 +434,14 @@ export class DigifactClient {
   async ccaInvoice(buyer, items, cobros, opts = {}) {
     const [sellerName, sellerAddress] = await this._getSellerInfo();
     const buyerObj = await this._resolveBuyer(buyer);
-    const [tipoFrase, escenario] = this._resolveFrase('FACT', opts);
-    const payload = buildCca(this.taxid, sellerName, sellerAddress, buyerObj, items, cobros, { afiliacion: this.afiliacionIva, tipoFrase, escenario });
+    let effFrases, tipoFrase, escenario;
+    if (this.frases != null && opts.tipo_frase == null && opts.escenario == null) {
+      effFrases = this.frases; tipoFrase = null; escenario = null;
+    } else {
+      effFrases = null;
+      [tipoFrase, escenario] = this._resolveFrase('FACT', opts);
+    }
+    const payload = buildCca(this.taxid, sellerName, sellerAddress, buyerObj, items, cobros, { afiliacion: this.afiliacionIva, tipoFrase, escenario, frases: effFrases });
     const data = await this._certify(payload);
     return DteResult.fromResponse(data);
   }
@@ -443,11 +464,43 @@ export class DigifactClient {
    * ]);
    */
   async fuelInvoice(buyer, items, opts = {}) {
+    const callFrases = opts.frases ?? null;
+    const callTipoFrase = opts.tipo_frase ?? null;
+    const callEscenario = opts.escenario ?? null;
+
+    if (callFrases != null && (callTipoFrase != null || callEscenario != null)) {
+      throw new DigifactValidationError('frases and tipo_frase/escenario are mutually exclusive; use one or the other');
+    }
+
+    // Resolve effective frases: per-call → constructor → legacy tipo_frase/escenario
+    let effFrases, effTipoFrase, effEscenario;
+    if (callFrases != null) {
+      effFrases = callFrases; effTipoFrase = null; effEscenario = null;
+    } else if (this.frases != null) {
+      effFrases = this.frases; effTipoFrase = null; effEscenario = null;
+    } else {
+      effFrases = null;
+      [effTipoFrase, effEscenario] = this._resolveFrase('FACT', opts);
+    }
+
+    // Resolve auto_enabled
+    let autoEnabled;
+    const callAuto = opts.auto_fuel_subsidy_frases ?? null;
+    if (callAuto != null) autoEnabled = callAuto;
+    else if (this.autoFuelSubsidyFrases != null) autoEnabled = this.autoFuelSubsidyFrases;
+    else autoEnabled = true;
+    if (process.env.DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES === '1') autoEnabled = false;
+
     const [sellerName, sellerAddress] = await this._getSellerInfo();
     const buyerObj = await this._resolveBuyer(buyer);
     const resolved = this._applyPetroleoRates(items);
-    const [tipoFrase, escenario] = this._resolveFrase('FACT', opts);
-    const payload = buildFactCombustible(this.taxid, sellerName, sellerAddress, buyerObj, resolved, { afiliacion: this.afiliacionIva, tipoFrase, escenario });
+    const payload = buildFactCombustible(this.taxid, sellerName, sellerAddress, buyerObj, resolved, {
+      afiliacion: this.afiliacionIva,
+      tipoFrase: effTipoFrase,
+      escenario: effEscenario,
+      frases: effFrases,
+      autoFuelSubsidyFrases: autoEnabled,
+    });
     const data = await this._certify(payload);
     return DteResult.fromResponse(data);
   }
@@ -478,8 +531,14 @@ export class DigifactClient {
   async creditNote(buyer, items, origin, reason, opts = {}) {
     const [sellerName, sellerAddress] = await this._getSellerInfo();
     const buyerObj = await this._resolveBuyer(buyer);
-    const [tipoFrase, escenario] = this._resolveFrase('NCRE', opts);
-    const payload = buildNcre(this.taxid, sellerName, sellerAddress, buyerObj, items, origin, reason, { afiliacion: this.afiliacionIva, tipoFrase, escenario });
+    let effFrases, tipoFrase, escenario;
+    if (this.frases != null && opts.tipo_frase == null && opts.escenario == null) {
+      effFrases = this.frases; tipoFrase = null; escenario = null;
+    } else {
+      effFrases = null;
+      [tipoFrase, escenario] = this._resolveFrase('NCRE', opts);
+    }
+    const payload = buildNcre(this.taxid, sellerName, sellerAddress, buyerObj, items, origin, reason, { afiliacion: this.afiliacionIva, tipoFrase, escenario, frases: effFrases });
     const data = await this._certify(payload);
     return DteResult.fromResponse(data);
   }
@@ -492,8 +551,14 @@ export class DigifactClient {
   async debitNote(buyer, items, origin, reason, opts = {}) {
     const [sellerName, sellerAddress] = await this._getSellerInfo();
     const buyerObj = await this._resolveBuyer(buyer);
-    const [tipoFrase, escenario] = this._resolveFrase('NDEB', opts);
-    const payload = buildNdeb(this.taxid, sellerName, sellerAddress, buyerObj, items, origin, reason, { afiliacion: this.afiliacionIva, tipoFrase, escenario });
+    let effFrases, tipoFrase, escenario;
+    if (this.frases != null && opts.tipo_frase == null && opts.escenario == null) {
+      effFrases = this.frases; tipoFrase = null; escenario = null;
+    } else {
+      effFrases = null;
+      [tipoFrase, escenario] = this._resolveFrase('NDEB', opts);
+    }
+    const payload = buildNdeb(this.taxid, sellerName, sellerAddress, buyerObj, items, origin, reason, { afiliacion: this.afiliacionIva, tipoFrase, escenario, frases: effFrases });
     const data = await this._certify(payload);
     return DteResult.fromResponse(data);
   }
