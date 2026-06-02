@@ -78,6 +78,9 @@ class DteBuilder
         bool $autoEnabled = true
     ): array {
         if ($frases !== null) {
+            if (count($frases) === 0) {
+                throw new DigifactValidationException('frases must contain at least one tipo_frase/escenario pair');
+            }
             return self::uniqFrases($frases);
         }
         $result = [];
@@ -391,7 +394,8 @@ class DteBuilder
         string $amountStr = '',
         string $observaciones = '-',
         ?array $extraHeader = null,
-        ?string $sellerEmail = null
+        ?string $sellerEmail = null,
+        ?array $frases = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         $taxable = !in_array($docType, self::NO_IVA_TYPES, true);
@@ -405,7 +409,7 @@ class DteBuilder
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
             $afiliacion, $tf, $es,
-            email: $sellerEmail
+            email: $sellerEmail, frases: $frases
         );
 
         $header = ['DocType' => $docType, 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'];
@@ -439,7 +443,8 @@ class DteBuilder
         string $afiliacion = 'GEN',
         ?string $sellerEmail = null,
         ?string $tipoFrase = null,
-        ?string $escenario = null
+        ?string $escenario = null,
+        ?array $frases = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
@@ -451,7 +456,7 @@ class DteBuilder
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
             $afiliacion, $tf, $es,
-            email: $sellerEmail
+            email: $sellerEmail, frases: $frases
         );
 
         $fcamData = [];
@@ -496,7 +501,8 @@ class DteBuilder
         string $afiliacion = 'GEN',
         ?string $sellerEmail = null,
         ?string $tipoFrase = null,
-        ?string $escenario = null
+        ?string $escenario = null,
+        ?array $frases = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
@@ -508,7 +514,7 @@ class DteBuilder
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
             $afiliacion, $tf, $es,
-            email: $sellerEmail
+            email: $sellerEmail, frases: $frases
         );
 
         return [
@@ -548,7 +554,8 @@ class DteBuilder
         string $afiliacion = 'GEN',
         ?string $sellerEmail = null,
         ?string $tipoFrase = null,
-        ?string $escenario = null
+        ?string $escenario = null,
+        ?array $frases = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
@@ -560,7 +567,7 @@ class DteBuilder
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
             $afiliacion, $tf, $es,
-            email: $sellerEmail
+            email: $sellerEmail, frases: $frases
         );
 
         return [
@@ -653,7 +660,8 @@ class DteBuilder
         string $afiliacion = 'GEN',
         string $amountStr = '',
         string $observaciones = '-',
-        ?string $sellerEmail = null
+        ?string $sellerEmail = null,
+        ?array $frases = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal] = self::buildItems($items, false);
@@ -661,7 +669,7 @@ class DteBuilder
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
             $afiliacion, '4', '4',
-            email: $sellerEmail
+            email: $sellerEmail, frases: $frases
         );
 
         $amt = $amountStr ?: $grandTotal;
@@ -697,7 +705,8 @@ class DteBuilder
         string $observaciones = '-',
         ?string $sellerEmail = null,
         ?string $tipoFrase = null,
-        ?string $escenario = null
+        ?string $escenario = null,
+        ?array $frases = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal] = self::buildItems($items, false);
@@ -709,7 +718,7 @@ class DteBuilder
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
             'PEQ', $tf, $es,
-            email: $sellerEmail
+            email: $sellerEmail, frases: $frases
         );
 
         $amt = $amountStr ?: $grandTotal;
@@ -740,7 +749,8 @@ class DteBuilder
         string $studentName = 'Estudiante',
         string $studentId = '000000000',
         string $academicUnit = '01',
-        ?string $sellerEmail = null
+        ?string $sellerEmail = null,
+        ?array $frases = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal] = self::buildItems($items, false);
@@ -748,7 +758,7 @@ class DteBuilder
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
             $afiliacion, '4', '5',
-            email: $sellerEmail
+            email: $sellerEmail, frases: $frases
         );
 
         $amt = $amountStr ?: $grandTotal;
@@ -783,7 +793,8 @@ class DteBuilder
         string $afiliacion = 'GEN',
         ?string $sellerEmail = null,
         ?string $tipoFrase = null,
-        ?string $escenario = null
+        ?string $escenario = null,
+        ?array $frases = null
     ): array {
         [$isoNow] = TaxHelper::gtNow();
         [$lineItems, $grandTotal, $totalIva] = self::buildItems($items, true);
@@ -795,7 +806,7 @@ class DteBuilder
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
             $afiliacion, $tf, $es,
-            email: $sellerEmail
+            email: $sellerEmail, frases: $frases
         );
 
         $ccaData = [];

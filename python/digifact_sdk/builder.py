@@ -72,6 +72,9 @@ def resolve_fuel_frases(
     Called only after mutual-exclusivity validation (frases vs tipo_frase/escenario).
     """
     if frases is not None:
+        if not frases:
+            from .exceptions import DigifactValidationError
+            raise DigifactValidationError("frases must contain at least one TipoFrase/Escenario pair")
         return _uniq_frases(frases)
     result: list[dict] = []
     if tipo_frase is not None and escenario is not None:
@@ -365,6 +368,7 @@ def build_fact(
     afiliacion: str = "GEN",
     tipo_frase: str | None = None,
     escenario: str | None = None,
+    frases: list[dict] | None = None,
     amount_str: str = "",
     observaciones: str = "-",
     extra_header: dict | None = None,
@@ -388,6 +392,7 @@ def build_fact(
         afiliacion=afiliacion,
         tipo_frase=tf,
         escenario=es,
+        frases=frases,
         email=seller_email,
     )
 
@@ -430,6 +435,7 @@ def build_fcam(
     seller_email: str | None = None,
     tipo_frase: str | None = None,
     escenario: str | None = None,
+    frases: list[dict] | None = None,
 ) -> dict:
     """Build a FCAM (Factura Cambiaria) DTE payload.
 
@@ -450,6 +456,7 @@ def build_fcam(
         afiliacion=afiliacion,
         tipo_frase=tf,
         escenario=es,
+        frases=frases,
         email=seller_email,
     )
 
@@ -502,6 +509,7 @@ def build_ndeb(
     seller_email: str | None = None,
     tipo_frase: str | None = None,
     escenario: str | None = None,
+    frases: list[dict] | None = None,
 ) -> dict:
     """Build a NDEB (Nota de Débito) DTE payload.
 
@@ -521,6 +529,7 @@ def build_ndeb(
         afiliacion=afiliacion,
         tipo_frase=tf,
         escenario=es,
+        frases=frases,
         email=seller_email,
     )
 
@@ -586,6 +595,7 @@ def build_ncre(
     seller_email: str | None = None,
     tipo_frase: str | None = None,
     escenario: str | None = None,
+    frases: list[dict] | None = None,
 ) -> dict:
     """Build a NCRE (Nota de Crédito) DTE payload.
 
@@ -605,6 +615,7 @@ def build_ncre(
         afiliacion=afiliacion,
         tipo_frase=tf,
         escenario=es,
+        frases=frases,
         email=seller_email,
     )
 
@@ -668,6 +679,7 @@ def build_nabn(
     amount_str: str = "",
     observaciones: str = "-",
     seller_email: str | None = None,
+    frases: list[dict] | None = None,
 ) -> dict:
     """Build a NABN (Nota de Abono) DTE payload — no IVA."""
     issue_dt, _, _ = gt_now()
@@ -681,6 +693,7 @@ def build_nabn(
         afiliacion=afiliacion,
         tipo_frase="1",
         escenario="1",
+        frases=frases,
         email=seller_email,
     )
 
@@ -777,6 +790,7 @@ def build_rdon(
     amount_str: str = "",
     observaciones: str = "-",
     seller_email: str | None = None,
+    frases: list[dict] | None = None,
 ) -> dict:
     """Build a RDON (Recibo por Donación) DTE payload — no IVA."""
     issue_dt, _, _ = gt_now()
@@ -789,6 +803,7 @@ def build_rdon(
         afiliacion=afiliacion,
         tipo_frase="4",
         escenario="4",
+        frases=frases,
         email=seller_email,
     )
 
@@ -828,6 +843,7 @@ def build_fpeq(
     seller_email: str | None = None,
     tipo_frase: str | None = None,
     escenario: str | None = None,
+    frases: list[dict] | None = None,
 ) -> dict:
     """Build a FPEQ (Factura Pequeño Contribuyente) DTE payload — no IVA, AfiliacionIVA=PEQ."""
     issue_dt, _, _ = gt_now()
@@ -844,6 +860,7 @@ def build_fpeq(
         afiliacion="PEQ",
         tipo_frase=tf,
         escenario=es,
+        frases=frases,
         email=seller_email,
     )
 
@@ -878,6 +895,7 @@ def build_reci(
     student_id: str = "000000000",
     academic_unit: str = "01",
     seller_email: str | None = None,
+    frases: list[dict] | None = None,
 ) -> dict:
     """Build a RECI (Recibo) DTE payload — no IVA, universidad ADENDA."""
     issue_dt, _, _ = gt_now()
@@ -890,6 +908,7 @@ def build_reci(
         afiliacion=afiliacion,
         tipo_frase="4",
         escenario="5",
+        frases=frases,
         email=seller_email,
     )
 
@@ -932,6 +951,7 @@ def build_cca(
     seller_email: str | None = None,
     tipo_frase: str | None = None,
     escenario: str | None = None,
+    frases: list[dict] | None = None,
 ) -> dict:
     """Build a CCA (Cobro por Cuenta Ajena) FACT+CCA complemento payload.
 
@@ -961,6 +981,7 @@ def build_cca(
         afiliacion=afiliacion,
         tipo_frase=tf,
         escenario=es,
+        frases=frases,
         email=seller_email,
     )
 

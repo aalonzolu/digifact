@@ -132,7 +132,7 @@ Ver detalles y ejemplos por lenguaje en los READMEs respectivos.
 
 ## Subsidio combustibles — frases automáticas (9/18 y 9/19)
 
-Durante el **periodo de subsidio** (2026-04-27 a 2026-07-27), SAT exige incluir frases especiales `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19` en facturas de combustible. **El SDK las agrega automáticamente** — las integraciones existentes no necesitan cambios.
+Durante el **periodo de subsidio** (2026-04-27 (incl.) a 2026-07-27 (excl.)), SAT exige incluir frases especiales `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19` en facturas de combustible. **El SDK las agrega automáticamente** — las integraciones existentes no necesitan cambios.
 
 Para deshabilitar la auto-inyección (ej. presupuesto agotado):
 - Por ENV VAR (sin deploy): `DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1`

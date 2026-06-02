@@ -200,7 +200,7 @@ var client = new DigifactClient(new DigifactOptions {
 
 ### Subsidio combustible — frases automáticas
 
-Durante el **periodo de subsidio de combustibles** (2026-04-27 a 2026-07-27), el SDK agrega automáticamente `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19` en facturas de combustible.
+Durante el **periodo de subsidio de combustibles** (2026-04-27 (incl.) a 2026-07-27 (excl.)), el SDK agrega automáticamente `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19` en facturas de combustible.
 
 ```csharp
 // Sin cambios — el SDK agrega 9/18 y 9/19 automáticamente durante el subsidio

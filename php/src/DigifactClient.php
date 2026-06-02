@@ -460,7 +460,15 @@ class DigifactClient
         $docType = $opts['doc_type'] ?? 'FACT';
         $amountStr = $opts['amount_str'] ?? '';
         $observaciones = $opts['observaciones'] ?? '-';
-        [$tipoFrase, $escenario] = $this->resolveFrase($docType, $opts);
+
+        $hasPerCallFrase = isset($opts['tipo_frase']) || isset($opts['escenario']);
+        if ($this->frases !== null && !$hasPerCallFrase) {
+            $effFrases = $this->frases;
+            $tipoFrase = $escenario = null;
+        } else {
+            $effFrases = null;
+            [$tipoFrase, $escenario] = $this->resolveFrase($docType, $opts);
+        }
 
         switch ($docType) {
             case 'FCAM':
@@ -470,7 +478,7 @@ class DigifactClient
                 }
                 $payload = DteBuilder::buildFcam(
                     $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items, $pt,
-                    $this->afiliacionIva, null, $tipoFrase, $escenario
+                    $this->afiliacionIva, null, $tipoFrase, $escenario, $effFrases
                 );
                 break;
 
@@ -483,7 +491,8 @@ class DigifactClient
             case 'NABN':
                 $payload = DteBuilder::buildFact(
                     $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-                    'NABN', $this->afiliacionIva, $tipoFrase, $escenario, $amountStr, $observaciones
+                    'NABN', $this->afiliacionIva, $tipoFrase, $escenario, $amountStr, $observaciones,
+                    null, null, $effFrases
                 );
                 break;
 
@@ -491,21 +500,22 @@ class DigifactClient
                 $tp = $opts['tipo_personeria'] ?? $this->tipoPersoneria;
                 $payload = DteBuilder::buildRdon(
                     $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-                    $tp, $this->afiliacionIva, $amountStr, $observaciones
+                    $tp, $this->afiliacionIva, $amountStr, $observaciones, null, $effFrases
                 );
                 break;
 
             case 'FPEQ':
                 $payload = DteBuilder::buildFpeq(
                     $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-                    $amountStr, $observaciones, null, $tipoFrase, $escenario
+                    $amountStr, $observaciones, null, $tipoFrase, $escenario, $effFrases
                 );
                 break;
 
             case 'RECI':
                 $payload = DteBuilder::buildReci(
                     $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-                    $this->afiliacionIva, $amountStr, $observaciones
+                    $this->afiliacionIva, $amountStr, $observaciones,
+                    'Estudiante', '000000000', '01', null, $effFrases
                 );
                 break;
 
@@ -513,7 +523,8 @@ class DigifactClient
                 // FACT (default), handles CUI automatically via buyer type
                 $payload = DteBuilder::buildFact(
                     $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-                    $docType, $this->afiliacionIva, $tipoFrase, $escenario, $amountStr, $observaciones
+                    $docType, $this->afiliacionIva, $tipoFrase, $escenario, $amountStr, $observaciones,
+                    null, null, $effFrases
                 );
                 break;
         }
@@ -531,10 +542,17 @@ class DigifactClient
     {
         [$sellerName, $sellerAddress] = $this->getSellerInfo();
         $buyerArr = $this->resolveBuyer($buyer);
-        [$tipoFrase, $escenario] = $this->resolveFrase('FACT', $opts);
+        $hasPerCallFrase = isset($opts['tipo_frase']) || isset($opts['escenario']);
+        if ($this->frases !== null && !$hasPerCallFrase) {
+            $effFrases = $this->frases;
+            $tipoFrase = $escenario = null;
+        } else {
+            $effFrases = null;
+            [$tipoFrase, $escenario] = $this->resolveFrase('FACT', $opts);
+        }
         $payload = DteBuilder::buildCca(
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items, $cobros, $this->afiliacionIva,
-            null, $tipoFrase, $escenario
+            null, $tipoFrase, $escenario, $effFrases
         );
         $data = $this->certify($payload);
         return DteResult::fromArray($data);
@@ -594,7 +612,7 @@ class DigifactClient
         $resolved = $this->applyPetroleoRates($items);
         $payload = DteBuilder::buildFactCombustible(
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $resolved, $this->afiliacionIva,
-            $effTipoFrase, $effEscenario, $sellerEmail = null, $effFrases, $autoEnabled
+            $effTipoFrase, $effEscenario, null, $effFrases, $autoEnabled
         );
         $data = $this->certify($payload);
         return DteResult::fromArray($data);
@@ -633,10 +651,17 @@ class DigifactClient
     {
         [$sellerName, $sellerAddress] = $this->getSellerInfo();
         $buyerArr = $this->resolveBuyer($buyer);
-        [$tipoFrase, $escenario] = $this->resolveFrase('NCRE', $opts);
+        $hasPerCallFrase = isset($opts['tipo_frase']) || isset($opts['escenario']);
+        if ($this->frases !== null && !$hasPerCallFrase) {
+            $effFrases = $this->frases;
+            $tipoFrase = $escenario = null;
+        } else {
+            $effFrases = null;
+            [$tipoFrase, $escenario] = $this->resolveFrase('NCRE', $opts);
+        }
         $payload = DteBuilder::buildNcre(
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-            $origin, $reason, $this->afiliacionIva, null, $tipoFrase, $escenario
+            $origin, $reason, $this->afiliacionIva, null, $tipoFrase, $escenario, $effFrases
         );
         $data = $this->certify($payload);
         return DteResult::fromArray($data);
@@ -652,10 +677,17 @@ class DigifactClient
     {
         [$sellerName, $sellerAddress] = $this->getSellerInfo();
         $buyerArr = $this->resolveBuyer($buyer);
-        [$tipoFrase, $escenario] = $this->resolveFrase('NDEB', $opts);
+        $hasPerCallFrase = isset($opts['tipo_frase']) || isset($opts['escenario']);
+        if ($this->frases !== null && !$hasPerCallFrase) {
+            $effFrases = $this->frases;
+            $tipoFrase = $escenario = null;
+        } else {
+            $effFrases = null;
+            [$tipoFrase, $escenario] = $this->resolveFrase('NDEB', $opts);
+        }
         $payload = DteBuilder::buildNdeb(
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
-            $origin, $reason, $this->afiliacionIva, null, $tipoFrase, $escenario
+            $origin, $reason, $this->afiliacionIva, null, $tipoFrase, $escenario, $effFrases
         );
         $data = $this->certify($payload);
         return DteResult::fromArray($data);

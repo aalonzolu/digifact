@@ -96,7 +96,10 @@ export function withinSubsidyWindow(issueDtIso) {
  * @returns {Array<{tipo_frase:string, escenario:string}>}
  */
 export function resolveFuelFrases(frases, tipoFrase, escenario, issueDtIso, autoEnabled = true) {
-  if (frases != null) return uniqFrases(frases);
+  if (frases != null) {
+    if (frases.length === 0) throw new Error('frases must contain at least one {tipo_frase, escenario} pair');
+    return uniqFrases(frases);
+  }
   const result = [];
   if (tipoFrase != null && escenario != null) {
     result.push({ tipo_frase: tipoFrase, escenario });
@@ -311,6 +314,7 @@ export function buildFact(taxid, sellerName, sellerAddress, buyer, items, {
   afiliacion = 'GEN',
   tipoFrase = null,
   escenario = null,
+  frases = null,
   amountStr = '',
   observaciones = '-',
   extraHeader = null,
@@ -320,7 +324,7 @@ export function buildFact(taxid, sellerName, sellerAddress, buyer, items, {
   const taxable = !NO_IVA_TYPES.has(docType);
   const { lineItems, grandTotal, totalIva } = buildItems(items, taxable);
   const [tf, es] = resolveFrase(docType, afiliacion, tipoFrase, escenario);
-  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase: tf, escenario: es, email: sellerEmail });
+  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase: tf, escenario: es, frases, email: sellerEmail });
   const header = { DocType: docType, IssuedDateTime: isoNow, Currency: 'GTQ', ...(extraHeader || {}) };
   const amt = amountStr || grandTotal;
   const adenda = buildAdenda(docType, amt, items.length, observaciones);
@@ -334,12 +338,12 @@ export function buildFact(taxid, sellerName, sellerAddress, buyer, items, {
 }
 
 export function buildFcam(taxid, sellerName, sellerAddress, buyer, items, paymentTerms, {
-  afiliacion = 'GEN', sellerEmail = null, tipoFrase = null, escenario = null,
+  afiliacion = 'GEN', sellerEmail = null, tipoFrase = null, escenario = null, frases = null,
 } = {}) {
   const [isoNow] = gtNow();
   const { lineItems, grandTotal, totalIva } = buildItems(items, true);
   const [tf, es] = resolveFrase('FCAM', afiliacion, tipoFrase, escenario);
-  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase: tf, escenario: es, email: sellerEmail });
+  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase: tf, escenario: es, frases, email: sellerEmail });
 
   const fcamData = paymentTerms.map((pt, idx) => ({
     Info: [
@@ -364,12 +368,12 @@ export function buildFcam(taxid, sellerName, sellerAddress, buyer, items, paymen
 }
 
 export function buildNdeb(taxid, sellerName, sellerAddress, buyer, items, origin, reason, {
-  afiliacion = 'GEN', sellerEmail = null, tipoFrase = null, escenario = null,
+  afiliacion = 'GEN', sellerEmail = null, tipoFrase = null, escenario = null, frases = null,
 } = {}) {
   const [isoNow] = gtNow();
   const { lineItems, grandTotal, totalIva } = buildItems(items, true);
   const [tf, es] = resolveFrase('NDEB', afiliacion, tipoFrase, escenario);
-  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase: tf, escenario: es, email: sellerEmail });
+  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase: tf, escenario: es, frases, email: sellerEmail });
 
   return {
     Version: '1.00', CountryCode: 'GT',
@@ -393,12 +397,12 @@ export function buildNdeb(taxid, sellerName, sellerAddress, buyer, items, origin
 }
 
 export function buildNcre(taxid, sellerName, sellerAddress, buyer, items, origin, reason, {
-  afiliacion = 'GEN', sellerEmail = null, tipoFrase = null, escenario = null,
+  afiliacion = 'GEN', sellerEmail = null, tipoFrase = null, escenario = null, frases = null,
 } = {}) {
   const [isoNow] = gtNow();
   const { lineItems, grandTotal, totalIva } = buildItems(items, true);
   const [tf, es] = resolveFrase('NCRE', afiliacion, tipoFrase, escenario);
-  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase: tf, escenario: es, email: sellerEmail });
+  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase: tf, escenario: es, frases, email: sellerEmail });
 
   return {
     Version: '1.00', CountryCode: 'GT',
@@ -475,12 +479,12 @@ export function buildFesp(taxid, sellerName, sellerAddress, buyer, items, {
 }
 
 export function buildRdon(taxid, sellerName, sellerAddress, buyer, items, tipoPersoneria, {
-  afiliacion = 'GEN', amountStr = '', observaciones = '-', sellerEmail = null,
+  afiliacion = 'GEN', amountStr = '', observaciones = '-', sellerEmail = null, frases = null,
 } = {}) {
   const [isoNow] = gtNow();
   const { lineItems, grandTotal } = buildItems(items, false);
   const seller = buildSeller(taxid, sellerName, sellerAddress, {
-    afiliacion, tipoFrase: '4', escenario: '4', email: sellerEmail,
+    afiliacion, tipoFrase: '4', escenario: '4', frases, email: sellerEmail,
   });
   const amt = amountStr || grandTotal;
   const adenda = buildAdenda('RDON', amt, items.length, observaciones);
@@ -500,13 +504,13 @@ export function buildRdon(taxid, sellerName, sellerAddress, buyer, items, tipoPe
 
 export function buildFpeq(taxid, sellerName, sellerAddress, buyer, items, {
   amountStr = '', observaciones = '-', sellerEmail = null,
-  tipoFrase = null, escenario = null,
+  tipoFrase = null, escenario = null, frases = null,
 } = {}) {
   const [isoNow] = gtNow();
   const { lineItems, grandTotal } = buildItems(items, false);
   const [tf, es] = resolveFrase('FPEQ', 'PEQ', tipoFrase, escenario);
   const seller = buildSeller(taxid, sellerName, sellerAddress, {
-    afiliacion: 'PEQ', tipoFrase: tf, escenario: es, email: sellerEmail,
+    afiliacion: 'PEQ', tipoFrase: tf, escenario: es, frases, email: sellerEmail,
   });
   const amt = amountStr || grandTotal;
   const adenda = buildAdenda('FPEQ', amt, items.length, observaciones);
@@ -524,12 +528,12 @@ export function buildFpeq(taxid, sellerName, sellerAddress, buyer, items, {
 export function buildReci(taxid, sellerName, sellerAddress, buyer, items, {
   afiliacion = 'GEN', amountStr = '', observaciones = '-',
   studentName = 'Estudiante', studentId = '000000000', academicUnit = '01',
-  sellerEmail = null,
+  sellerEmail = null, frases = null,
 } = {}) {
   const [isoNow] = gtNow();
   const { lineItems, grandTotal } = buildItems(items, false);
   const seller = buildSeller(taxid, sellerName, sellerAddress, {
-    afiliacion, tipoFrase: '4', escenario: '5', email: sellerEmail,
+    afiliacion, tipoFrase: '4', escenario: '5', frases, email: sellerEmail,
   });
   const amt = amountStr || grandTotal;
   const extraInfo = [
@@ -551,12 +555,12 @@ export function buildReci(taxid, sellerName, sellerAddress, buyer, items, {
 }
 
 export function buildCca(taxid, sellerName, sellerAddress, buyer, items, cobros, {
-  afiliacion = 'GEN', sellerEmail = null, tipoFrase = null, escenario = null,
+  afiliacion = 'GEN', sellerEmail = null, tipoFrase = null, escenario = null, frases = null,
 } = {}) {
   const [isoNow] = gtNow();
   const { lineItems, grandTotal, totalIva } = buildItems(items, true);
   const [tf, es] = resolveFrase('FACT', afiliacion, tipoFrase, escenario);
-  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase: tf, escenario: es, email: sellerEmail });
+  const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, tipoFrase: tf, escenario: es, frases, email: sellerEmail });
 
   const ccaData = cobros.map(cobro => ({
     Info: [
