@@ -96,14 +96,15 @@ jobs:
     needs: test
     permissions:
       contents: read
-      id-token: write  # required for npm trusted publishing (OIDC — no token needed)
+      id-token: write  # required for npm OIDC trusted publishing (no token needed)
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"              # npm 11.5.1+ ships with Node 24 — required for OIDC
           registry-url: "https://registry.npmjs.org"
+          # Do NOT set NODE_AUTH_TOKEN — even an empty string breaks OIDC auth
 
       - name: Set package version from tag
         run: |
@@ -111,11 +112,9 @@ jobs:
           VERSION="${TAG#v}"
           cd javascript && npm version "$VERSION" --no-git-tag-version --allow-same-version
 
-      - name: Publish to npm
+      - name: Publish to npm (OIDC trusted publishing — no NPM_TOKEN needed)
         working-directory: javascript
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ── 4. Publish C# SDK to NuGet ────────────────────────────────────────────
   publish-nuget:
