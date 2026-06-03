@@ -1,0 +1,20 @@
+# PHP 8.3 + composer + bcmath — matches the ci.yml php-integration job exactly.
+# Build once with: docker build -t digifact-php-test -f docker/Dockerfile.php-test docker/
+# (or just run ./run_integration_tests.sh — it builds automatically on first use)
+
+# Pull composer binary from the official image
+FROM composer:2 AS composer-bin
+
+# Use the same PHP version as CI (shivammathur/setup-php 8.3)
+FROM php:8.3-cli-alpine
+
+COPY --from=composer-bin /usr/bin/composer /usr/bin/composer
+
+# Install bcmath (bundled with PHP, no extra OS libs needed)
+RUN apk add --no-cache --virtual .build-deps $PHPIZE_DEPS \
+    && docker-php-ext-install bcmath \
+    && apk del .build-deps
+
+# Allow arbitrary shell commands (composer image sets a custom entrypoint)
+ENTRYPOINT []
+CMD ["/bin/sh"]

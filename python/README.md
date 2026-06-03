@@ -11,7 +11,7 @@ pip install digifact-sdk
 O desde el código fuente:
 
 ```bash
-pip install -e sdk/python/
+pip install -e python/
 ```
 
 ## Configuración del cliente (`DigifactClient(...)`)
@@ -385,6 +385,8 @@ python -m pytest tests/ -v
 | `DIGIFACT_TAXID` | NIT del emisor (p. ej. `12345678`) |
 | `DIGIFACT_USERNAME` | Usuario (p. ej. `FELUSER`) |
 | `DIGIFACT_PASSWORD` | Contraseña de la cuenta |
+| `DIGIFACT_ENVIRONMENT` | `test` (default) o `production` |
+| `DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES` | `1` para deshabilitar la auto-inyección de frases 9/18 y 9/19 sin tocar código |
 
 ## Manejo de errores
 

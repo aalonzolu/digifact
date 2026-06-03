@@ -27,6 +27,7 @@ except ImportError:
 TAXID    = os.environ.get("DIGIFACT_TAXID", "")
 USERNAME = os.environ.get("DIGIFACT_USERNAME", "")
 PASSWORD = os.environ.get("DIGIFACT_PASSWORD", "")
+ENV      = os.environ.get("DIGIFACT_ENVIRONMENT", "test").lower()
 
 SKIP_REASON = "Set DIGIFACT_TAXID, DIGIFACT_USERNAME, DIGIFACT_PASSWORD to run integration tests"
 SKIP = not (TAXID and USERNAME and PASSWORD)
@@ -40,7 +41,7 @@ if not SKIP:
         taxid=TAXID,
         username=USERNAME,
         password=PASSWORD,
-        environment="test",
+        environment=ENV,
     )
 else:
     _CLIENT = None  # type: ignore[assignment]
@@ -362,6 +363,41 @@ class TestFuelFrases(unittest.TestCase):
         result_after = resolve_fuel_frases(None, "1", "1", "2026-07-27T10:00:00", auto_enabled=True)
         self.assertEqual(len(result_after), 1)
 
+    def test_build_fact_combustible_seller_has_additionl_info(self):
+        from digifact_sdk.builder import build_fact_combustible
+        payload = build_fact_combustible(
+            "12345678", "SELLER", "ADDR",
+            buyer=self._buyer(), items=self._items(),
+            auto_fuel_subsidy_frases=False,
+        )
+        ai = payload["Seller"].get("AdditionlInfo", [])
+        self.assertTrue(len(ai) >= 2, "Seller.AdditionlInfo must be present for fuel invoice")
+        self.assertEqual(ai[0]["Name"], "TipoFrase", "first AdditionlInfo entry must be TipoFrase")
+        self.assertEqual(ai[0]["Value"], "1")
+        self.assertEqual(ai[0]["Data"], "1")
+        self.assertEqual(ai[1]["Name"], "Escenario")
+        self.assertEqual(ai[1]["Data"], "1")
+
+    def test_build_fact_combustible_subsidy_frases_in_additionl_info(self):
+        from digifact_sdk.builder import build_fact_combustible
+        payload = build_fact_combustible(
+            "12345678", "SELLER", "ADDR",
+            buyer=self._buyer(), items=self._items(),
+            tipo_frase="1", escenario="1", auto_fuel_subsidy_frases=True,
+        )
+        ai = payload["Seller"].get("AdditionlInfo", [])
+        pairs = [(ai[i]["Value"], ai[i+1]["Value"]) for i in range(0, len(ai) - 1, 2)]
+        tipo_frases = [tf for tf, _ in pairs]
+        self.assertIn("1", tipo_frases, "TipoFrase=1 must be in AdditionlInfo")
+        # Within subsidy window: 9/18 and 9/19 must also be present
+        if len(pairs) > 1:
+            self.assertIn(("9", "18"), pairs, "9/18 must be in AdditionlInfo when within subsidy window")
+            self.assertIn(("9", "19"), pairs, "9/19 must be in AdditionlInfo when within subsidy window")
+            # Data must be the 1-based frase group index so the API creates separate <dte:Frase> elements
+            for idx, entry in enumerate(ai):
+                expected_data = str(idx // 2 + 1)
+                self.assertEqual(entry["Data"], expected_data, f"ai[{idx}]['Data'] must equal frase group index")
+
     def test_mutual_exclusivity_raises(self):
         from digifact_sdk.builder import build_fact_combustible
         from digifact_sdk.exceptions import DigifactValidationError
@@ -633,11 +669,10 @@ class TestGetDte(unittest.TestCase):
 @unittest.skipIf(SKIP, SKIP_REASON)
 class TestFuelInvoice(unittest.TestCase):
     def test_fuel_invoice_cf_mixed_items(self):
-        # TODO: verify correct Digifact NUC JSON format for multiple frases with Digifact support.
-        # The official documentation (documentacion_sat.md §4.2, §6.5) says frases belong in
-        # Seller.AdditionlInfo, but sending multiple pairs there caused XSLT_TRANSFORM_FAILED.
-        # We now send a top-level "Frases" key (matching the SAT XML structure from ESQUEMA DE
-        # SUBSIDIO.xml). Disable auto-injection until the NUC JSON format is confirmed.
+        import base64, re as _re
+        is_production = ENV == "production"
+        # Test env does not support TipoFrase=9 (subsidio) — disable auto-injection there.
+        # On production, the default (True) applies and subsidio frases are included automatically.
         result = _client().fuel_invoice(
             "CF",
             [
@@ -647,10 +682,22 @@ class TestFuelInvoice(unittest.TestCase):
                  "petroleo_amount": 4.60, "petroleo_code": "2", "type": "Bien"},
                 {"description": "FILTRO DE ACEITE",  "qty": 1, "price": 45.00, "type": "Bien"},
             ],
-            auto_fuel_subsidy_frases=False,
+            auto_fuel_subsidy_frases=is_production,
         )
         self.assertTrue(result.auth_number, "Expected auth_number")
         print(f"\n  FACT Combustible auth: {result.auth_number}")
+
+        if is_production:
+            # Verify subsidio frases appear in the certified XML
+            dte   = _client().get_dte(result.auth_number, "XML")
+            b64   = (dte.get("RESPONSE") or [{}])[0].get("ResponseData1") or dte.get("responseData1", "")
+            self.assertTrue(b64, "ResponseData1 must be present")
+            xml   = base64.b64decode(b64).decode("utf-8", errors="replace")
+            frases = _re.findall(r'TipoFrase="\d+" CodigoEscenario="\d+"', xml)
+            print(f"  Frases en XML: {', '.join(frases)}")
+            self.assertIn('TipoFrase="9"',        xml, "TipoFrase=9 must appear in certified XML")
+            self.assertIn('CodigoEscenario="18"', xml, "CodigoEscenario=18 must appear in certified XML")
+            self.assertIn('CodigoEscenario="19"', xml, "CodigoEscenario=19 must appear in certified XML")
 
 
 if __name__ == "__main__":

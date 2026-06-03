@@ -37,13 +37,7 @@ class DteBuilder
         return $out;
     }
 
-    private static function buildFrasesSection(array $frases): array
-    {
-        return array_map(fn($f) => [
-            'TipoFrase'      => (string)$f['tipo_frase'],
-            'CodigoEscenario' => (string)$f['escenario'],
-        ], $frases);
-    }
+
 
     private static function withinSubsidyWindow(string $issueDtIso): bool
     {
@@ -237,8 +231,18 @@ class DteBuilder
             $seller['Contact'] = ['EmailList' => ['Email' => [$email]]];
         }
         // AdditionlInfo — intentional typo per SAT/Digifact spec.
-        // When frases list is provided, frases go to the top-level Frases section (not here).
-        if ($frases === null && $tipoFrase !== null && $escenario !== null) {
+        // The API generates <dte:Frases> in the certified XML exclusively from this field.
+        // Multiple frases are encoded as repeated TipoFrase/Escenario pairs in the same array.
+        if ($frases !== null && count($frases) > 0) {
+            // Data acts as the frase group index (1-based); all entries with Data='1' collapse to one frase.
+            $ai = [];
+            foreach ($frases as $i => $f) {
+                $idx = (string)($i + 1);
+                $ai[] = ['Name' => 'TipoFrase', 'Data' => $idx, 'Value' => (string)$f['tipo_frase']];
+                $ai[] = ['Name' => 'Escenario',  'Data' => $idx, 'Value' => (string)$f['escenario']];
+            }
+            $seller['AdditionlInfo'] = $ai;
+        } elseif ($tipoFrase !== null && $escenario !== null) {
             $seller['AdditionlInfo'] = [
                 ['Name' => 'TipoFrase', 'Data' => '1', 'Value' => $tipoFrase],
                 ['Name' => 'Escenario',  'Data' => '1', 'Value' => $escenario],
@@ -421,7 +425,6 @@ class DteBuilder
             'Header'      => $header,
             'Seller'      => $seller,
             'Buyer'       => $buyer,
-            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, $totalIva, $taxable),
@@ -473,7 +476,6 @@ class DteBuilder
             'Header'      => ['DocType' => 'FCAM', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
-            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
@@ -520,7 +522,6 @@ class DteBuilder
             'Header'      => ['DocType' => 'NDEB', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
-            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
@@ -574,7 +575,6 @@ class DteBuilder
             'Header'      => ['DocType' => 'NCRE', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
-            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
@@ -687,7 +687,6 @@ class DteBuilder
             ],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
-            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, '0.000000', false),
@@ -730,7 +729,6 @@ class DteBuilder
             'Header'      => ['DocType' => 'FPEQ', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
-            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, '0.000000', false),
@@ -777,7 +775,6 @@ class DteBuilder
             'Header'      => ['DocType' => 'RECI', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
-            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, '0.000000', false),
@@ -834,7 +831,6 @@ class DteBuilder
             'Header'      => ['DocType' => 'FACT', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
-            ...($frases ? ['Frases' => self::buildFrasesSection($frases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => self::buildTotals($grandTotal, $totalIva, true),
@@ -998,6 +994,8 @@ class DteBuilder
 
         $resolvedFrases = self::resolveFuelFrases($frases, $tf, $es, $isoNow, $autoFuelSubsidyFrases);
 
+        // All frases (base + any subsidy) go into Seller.AdditionlInfo as repeated pairs —
+        // that is the field the API reads to generate <dte:Frases> in the certified XML.
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
             $afiliacion, null, null,
@@ -1015,7 +1013,6 @@ class DteBuilder
             'Header'      => ['DocType' => 'FACT', 'IssuedDateTime' => $isoNow, 'Currency' => 'GTQ'],
             'Seller'      => $seller,
             'Buyer'       => $buyer,
-            ...($resolvedFrases ? ['Frases' => self::buildFrasesSection($resolvedFrases)] : []),
             'ThirdParties' => null,
             'Items'       => $lineItems,
             'Totals'      => [

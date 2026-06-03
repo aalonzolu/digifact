@@ -44,13 +44,18 @@ def _uniq_frases(frases: list[dict]) -> list[dict]:
     return out
 
 
-def _build_frases_section(frases: list[dict]) -> list[dict]:
-    """Build the top-level Frases payload array from a frases list.
+def _build_additionl_info_from_frases(frases: list[dict]) -> list[dict]:
+    """Build Seller.AdditionlInfo entries from a frases list.
 
-    Maps to <dte:Frases><dte:Frase TipoFrase="..." CodigoEscenario="..."/></dte:Frases>
-    in the SAT FEL XML — a sibling of Seller/Buyer/Items, NOT inside AdditionlInfo.
+    Each frase gets a 1-based Data index so Digifact's NUC XSLT groups them into
+    separate <dte:Frase> elements. Confirmed via live API: Digifact counts the frases
+    correctly with this format (error becomes a NIT-authorization check, not XSLT failure).
     """
-    return [{"TipoFrase": str(f["tipo_frase"]), "CodigoEscenario": str(f["escenario"])} for f in frases]
+    out: list[dict] = []
+    for i, f in enumerate(frases, start=1):
+        out.append({"Name": "TipoFrase", "Data": str(i), "Value": str(f["tipo_frase"])})
+        out.append({"Name": "Escenario",  "Data": str(i), "Value": str(f["escenario"])})
+    return out
 
 
 def _within_subsidy_window(issue_dt_iso: str) -> bool:
@@ -157,9 +162,11 @@ def _build_seller(
     if email:
         seller["Contact"] = {"EmailList": {"Email": [email]}}
     # AdditionlInfo — intentional typo in API spec.
-    # When frases list is provided, frases go to the top-level Frases section of
-    # the payload (not here); omit AdditionlInfo entirely for the frase fields.
-    if frases is None and tipo_frase is not None and escenario is not None:
+    # Digifact's XSLT groups entries by 1-based Data index into separate <dte:Frase> elements.
+    if frases is not None:
+        if frases:
+            seller["AdditionlInfo"] = _build_additionl_info_from_frases(frases)
+    elif tipo_frase is not None and escenario is not None:
         seller["AdditionlInfo"] = [
             {"Name": "TipoFrase", "Data": "1", "Value": tipo_frase},
             {"Name": "Escenario", "Data": "1", "Value": escenario},
@@ -413,13 +420,11 @@ def build_fact(
         "Header": header,
         "Seller": seller,
         "Buyer": buyer,
+        "ThirdParties": None,
+        "Items": line_items,
+        "Totals": _build_totals(totals, taxable=taxable),
+        "AdditionalDocumentInfo": adenda,
     }
-    if frases:
-        payload["Frases"] = _build_frases_section(frases)
-    payload["ThirdParties"] = None
-    payload["Items"] = line_items
-    payload["Totals"] = _build_totals(totals, taxable=taxable)
-    payload["AdditionalDocumentInfo"] = adenda
     return payload
 
 
@@ -482,7 +487,6 @@ def build_fcam(
         "Header": {"DocType": "FCAM", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
-        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=True),
@@ -542,7 +546,6 @@ def build_ndeb(
         "Header": {"DocType": "NDEB", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
-        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=True),
@@ -629,7 +632,6 @@ def build_ncre(
         "Header": {"DocType": "NCRE", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
-        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=True),
@@ -711,7 +713,6 @@ def build_nabn(
         "Header": {"DocType": "NABN", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
-        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=False),
@@ -829,7 +830,6 @@ def build_rdon(
         },
         "Seller": seller,
         "Buyer": buyer,
-        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=False),
@@ -880,7 +880,6 @@ def build_fpeq(
         "Header": {"DocType": "FPEQ", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
-        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=False),
@@ -939,7 +938,6 @@ def build_reci(
         "Header": {"DocType": "RECI", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
-        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=False),
@@ -1048,7 +1046,6 @@ def build_cca(
         "Header": {"DocType": "FACT", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
-        **({"Frases": _build_frases_section(frases)} if frases else {}),
         "ThirdParties": None,
         "Items": line_items,
         "Totals": _build_totals(totals, taxable=True),
@@ -1223,6 +1220,8 @@ def build_fact_combustible(
 
     resolved_frases = resolve_fuel_frases(frases, tf, es, issue_dt, auto_fuel_subsidy_frases)
 
+    # All frases (base + any subsidy) go into Seller.AdditionlInfo as repeated pairs —
+    # that is the field the API reads to generate <dte:Frases> in the certified XML.
     seller = _build_seller(
         taxid,
         seller_name,
@@ -1243,8 +1242,6 @@ def build_fact_combustible(
         "Seller": seller,
         "Buyer": buyer,
     }
-    if resolved_frases:
-        combustible_payload["Frases"] = _build_frases_section(resolved_frases)
     combustible_payload.update({
         "ThirdParties": None,
         "Items": line_items,
