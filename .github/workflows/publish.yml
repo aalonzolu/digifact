@@ -111,9 +111,11 @@ jobs:
           VERSION="${TAG#v}"
           cd javascript && npm version "$VERSION" --no-git-tag-version --allow-same-version
 
-      - name: Publish to npm (trusted publishing — no NPM_TOKEN secret needed)
+      - name: Publish to npm
         working-directory: javascript
         run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ── 4. Publish C# SDK to NuGet ────────────────────────────────────────────
   publish-nuget:
