@@ -37,15 +37,7 @@ class DteBuilder
         return $out;
     }
 
-    private static function buildAdditionlInfoFromFrases(array $frases): array
-    {
-        $out = [];
-        foreach ($frases as $f) {
-            $out[] = ['Name' => 'TipoFrase', 'Data' => '1', 'Value' => (string)$f['tipo_frase']];
-            $out[] = ['Name' => 'Escenario',  'Data' => '1', 'Value' => (string)$f['escenario']];
-        }
-        return $out;
-    }
+
 
     private static function withinSubsidyWindow(string $issueDtIso): bool
     {
@@ -238,11 +230,18 @@ class DteBuilder
         if ($email !== null) {
             $seller['Contact'] = ['EmailList' => ['Email' => [$email]]];
         }
-        // AdditionlInfo — intentional typo per SAT/Digifact spec
-        if ($frases !== null) {
-            if (count($frases) > 0) {
-                $seller['AdditionlInfo'] = self::buildAdditionlInfoFromFrases($frases);
+        // AdditionlInfo — intentional typo per SAT/Digifact spec.
+        // The API generates <dte:Frases> in the certified XML exclusively from this field.
+        // Multiple frases are encoded as repeated TipoFrase/Escenario pairs in the same array.
+        if ($frases !== null && count($frases) > 0) {
+            // Data acts as the frase group index (1-based); all entries with Data='1' collapse to one frase.
+            $ai = [];
+            foreach ($frases as $i => $f) {
+                $idx = (string)($i + 1);
+                $ai[] = ['Name' => 'TipoFrase', 'Data' => $idx, 'Value' => (string)$f['tipo_frase']];
+                $ai[] = ['Name' => 'Escenario',  'Data' => $idx, 'Value' => (string)$f['escenario']];
             }
+            $seller['AdditionlInfo'] = $ai;
         } elseif ($tipoFrase !== null && $escenario !== null) {
             $seller['AdditionlInfo'] = [
                 ['Name' => 'TipoFrase', 'Data' => '1', 'Value' => $tipoFrase],
@@ -995,6 +994,8 @@ class DteBuilder
 
         $resolvedFrases = self::resolveFuelFrases($frases, $tf, $es, $isoNow, $autoFuelSubsidyFrases);
 
+        // All frases (base + any subsidy) go into Seller.AdditionlInfo as repeated pairs —
+        // that is the field the API reads to generate <dte:Frases> in the certified XML.
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,
             $afiliacion, null, null,

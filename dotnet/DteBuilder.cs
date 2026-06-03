@@ -82,16 +82,6 @@ internal static class DteBuilder
         return out_;
     }
 
-    private static JsonArray BuildAdditionlInfoFromFrases(IReadOnlyList<FraseItem> frases)
-    {
-        var arr = new JsonArray();
-        foreach (var f in frases)
-        {
-            arr.Add(new JsonObject { ["Name"] = "TipoFrase", ["Data"] = "1", ["Value"] = f.TipoFrase });
-            arr.Add(new JsonObject { ["Name"] = "Escenario",  ["Data"] = "1", ["Value"] = f.Escenario });
-        }
-        return arr;
-    }
 
     internal static bool WithinSubsidyWindow(string issueDtIso)
     {
@@ -232,12 +222,20 @@ internal static class DteBuilder
                 ["EmailList"] = new JsonObject { ["Email"] = new JsonArray { (JsonNode)email } },
             };
 
-        // AdditionlInfo — intentional typo per SAT/Digifact spec
-        if (frases is not null)
+        // AdditionlInfo — intentional typo per SAT/Digifact spec.
+        // Digifact's XSLT groups entries by 1-based Data index into separate <dte:Frase> elements.
+        if (frases is { Count: > 0 })
         {
-            if (frases.Count > 0) seller["AdditionlInfo"] = BuildAdditionlInfoFromFrases(frases);
+            var ai = new JsonArray();
+            for (int i = 0; i < frases.Count; i++)
+            {
+                var idx = (i + 1).ToString();
+                ai.Add(new JsonObject { ["Name"] = "TipoFrase", ["Data"] = idx, ["Value"] = frases[i].TipoFrase });
+                ai.Add(new JsonObject { ["Name"] = "Escenario",  ["Data"] = idx, ["Value"] = frases[i].Escenario });
+            }
+            seller["AdditionlInfo"] = ai;
         }
-        else if (tipoFrase is not null && escenario is not null)
+        else if (frases is null && tipoFrase is not null && escenario is not null)
             seller["AdditionlInfo"] = new JsonArray
             {
                 new JsonObject { ["Name"] = "TipoFrase", ["Data"] = "1", ["Value"] = tipoFrase },

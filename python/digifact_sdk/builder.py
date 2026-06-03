@@ -45,10 +45,16 @@ def _uniq_frases(frases: list[dict]) -> list[dict]:
 
 
 def _build_additionl_info_from_frases(frases: list[dict]) -> list[dict]:
+    """Build Seller.AdditionlInfo entries from a frases list.
+
+    Each frase gets a 1-based Data index so Digifact's NUC XSLT groups them into
+    separate <dte:Frase> elements. Confirmed via live API: Digifact counts the frases
+    correctly with this format (error becomes a NIT-authorization check, not XSLT failure).
+    """
     out: list[dict] = []
-    for f in frases:
-        out.append({"Name": "TipoFrase", "Data": "1", "Value": str(f["tipo_frase"])})
-        out.append({"Name": "Escenario", "Data": "1", "Value": str(f["escenario"])})
+    for i, f in enumerate(frases, start=1):
+        out.append({"Name": "TipoFrase", "Data": str(i), "Value": str(f["tipo_frase"])})
+        out.append({"Name": "Escenario",  "Data": str(i), "Value": str(f["escenario"])})
     return out
 
 
@@ -155,7 +161,8 @@ def _build_seller(
     }
     if email:
         seller["Contact"] = {"EmailList": {"Email": [email]}}
-    # AdditionlInfo — intentional typo in API spec
+    # AdditionlInfo — intentional typo in API spec.
+    # Digifact's XSLT groups entries by 1-based Data index into separate <dte:Frase> elements.
     if frases is not None:
         if frases:
             seller["AdditionlInfo"] = _build_additionl_info_from_frases(frases)
@@ -1213,6 +1220,8 @@ def build_fact_combustible(
 
     resolved_frases = resolve_fuel_frases(frases, tf, es, issue_dt, auto_fuel_subsidy_frases)
 
+    # All frases (base + any subsidy) go into Seller.AdditionlInfo as repeated pairs —
+    # that is the field the API reads to generate <dte:Frases> in the certified XML.
     seller = _build_seller(
         taxid,
         seller_name,
@@ -1226,12 +1235,14 @@ def build_fact_combustible(
     if float(total_petroleo) > 0.0:
         total_tax.append({"Description": "PETROLEO", "Amount": total_petroleo})
 
-    return {
+    combustible_payload: dict[str, Any] = {
         "Version": "1.00",
         "CountryCode": "GT",
         "Header": {"DocType": "FACT", "IssuedDateTime": issue_dt, "Currency": "GTQ"},
         "Seller": seller,
         "Buyer": buyer,
+    }
+    combustible_payload.update({
         "ThirdParties": None,
         "Items": line_items,
         "Totals": {
@@ -1239,4 +1250,5 @@ def build_fact_combustible(
             "GrandTotal": {"InvoiceTotal": grand_total},
         },
         "AdditionalDocumentInfo": _build_fuel_adenda(),
-    }
+    })
+    return combustible_payload

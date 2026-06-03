@@ -40,7 +40,7 @@ class IntegrationTest extends TestCase
             'taxid'       => $taxid,
             'username'    => $username,
             'password'    => $password,
-            'environment' => 'test',
+            'environment' => strtolower(getenv('DIGIFACT_ENVIRONMENT') ?: 'test'),
         ]);
     }
 
@@ -281,6 +281,49 @@ class IntegrationTest extends TestCase
         $this->assertCount(1, $after);
     }
 
+    public function testBuildFactCombustibleSellerHasAdditionlInfo(): void
+    {
+        $payload = DteBuilder::buildFactCombustible(
+            '12345678', 'SELLER', 'ADDR',
+            $this->getBuyer(), $this->getFuelItems(),
+            autoFuelSubsidyFrases: false
+        );
+        $ai = $payload['Seller']['AdditionlInfo'] ?? [];
+        $this->assertNotEmpty($ai, 'Seller.AdditionlInfo must be present for fuel invoice');
+        $this->assertSame('TipoFrase', $ai[0]['Name'], 'first entry must be TipoFrase');
+        $this->assertSame('1', $ai[0]['Value']);
+        $this->assertSame('1', $ai[0]['Data']);
+        $this->assertSame('Escenario', $ai[1]['Name']);
+        $this->assertSame('1', $ai[1]['Data']);
+    }
+
+    public function testBuildFactCombustibleSubsidyFrasesInAdditionlInfo(): void
+    {
+        $payload = DteBuilder::buildFactCombustible(
+            '12345678', 'SELLER', 'ADDR',
+            $this->getBuyer(), $this->getFuelItems(),
+            tipoFrase: '1', escenario: '1', autoFuelSubsidyFrases: true
+        );
+        $ai = $payload['Seller']['AdditionlInfo'] ?? [];
+        // Parse pairs from flat array
+        $pairs = [];
+        for ($i = 0; $i + 1 < count($ai); $i += 2) {
+            $pairs[] = [$ai[$i]['Value'], $ai[$i + 1]['Value']];
+        }
+        $tipoFrases = array_column($pairs, 0);
+        $this->assertContains('1', $tipoFrases, 'TipoFrase=1 must be in AdditionlInfo');
+        // Within subsidy window: 9/18 and 9/19 must be present
+        if (count($pairs) > 1) {
+            $this->assertContains(['9', '18'], $pairs, '9/18 must be in AdditionlInfo when within subsidy window');
+            $this->assertContains(['9', '19'], $pairs, '9/19 must be in AdditionlInfo when within subsidy window');
+            // Data must be the 1-based frase group index so the API creates separate <dte:Frase> elements
+            for ($i = 0; $i < count($ai); $i++) {
+                $expectedData = (string)(intdiv($i, 2) + 1);
+                $this->assertSame($expectedData, $ai[$i]['Data'], "ai[$i]['Data'] must equal frase group index");
+            }
+        }
+    }
+
     public function testFuelFrasesMutualExclusivityRaises(): void
     {
         $this->expectException(DigifactValidationException::class);
@@ -480,12 +523,28 @@ class IntegrationTest extends TestCase
     public function testFuelInvoice(): void
     {
         $client = $this->requireClient();
+        $isProduction = strtolower(getenv('DIGIFACT_ENVIRONMENT') ?: 'test') === 'production';
+        // Test env does not support TipoFrase=9 (subsidio) — disable auto-injection there.
+        // On production, the default (true) applies and subsidio frases are included automatically.
         $result = $client->fuelInvoice('CF', [
-            ['description' => 'GASOLINA SUPER',    'qty' => 1, 'price' => 30.30, 'petroleo_amount' => 4.70, 'petroleo_code' => '1', 'type' => 'Bien'],
-            ['description' => 'GASOLINA REGULAR',  'qty' => 1, 'price' => 29.40, 'petroleo_amount' => 4.60, 'petroleo_code' => '2', 'type' => 'Bien'],
+            ['description' => 'GASOLINA SUPER',    'qty' => 1, 'price' => 35.00, 'petroleo_amount' => 4.70, 'petroleo_code' => '1', 'type' => 'Bien'],
+            ['description' => 'GASOLINA REGULAR',  'qty' => 1, 'price' => 34.00, 'petroleo_amount' => 4.60, 'petroleo_code' => '2', 'type' => 'Bien'],
             ['description' => 'FILTRO DE ACEITE',  'qty' => 1, 'price' => 45.00, 'type' => 'Bien'],
-        ]);
+        ], ['auto_fuel_subsidy_frases' => $isProduction]);
         $this->assertNotEmpty($result->authNumber);
         echo "\n  FACT Combustible auth: " . $result->authNumber;
+
+        if ($isProduction) {
+            // Verify subsidio frases appear in the certified XML
+            $dte = $client->getDte($result->authNumber, 'XML');
+            $b64 = $dte['RESPONSE'][0]['ResponseData1'] ?? $dte['responseData1'] ?? '';
+            $this->assertNotEmpty($b64, 'ResponseData1 must be present');
+            $xml = (string)base64_decode($b64);
+            preg_match_all('/TipoFrase="\d+" CodigoEscenario="\d+"/', $xml, $fraseMatches);
+            echo "\n  Frases en XML: " . implode(', ', $fraseMatches[0]);
+            $this->assertStringContainsString('TipoFrase="9"',        $xml, 'TipoFrase=9 must appear in certified XML');
+            $this->assertStringContainsString('CodigoEscenario="18"', $xml, 'CodigoEscenario=18 must appear in certified XML');
+            $this->assertStringContainsString('CodigoEscenario="19"', $xml, 'CodigoEscenario=19 must appear in certified XML');
+        }
     }
 }
