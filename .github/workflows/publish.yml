@@ -104,7 +104,11 @@ jobs:
         with:
           node-version: "24"              # npm 11.5.1+ ships with Node 24 — required for OIDC
           registry-url: "https://registry.npmjs.org"
-          # Do NOT set NODE_AUTH_TOKEN — even an empty string breaks OIDC auth
+
+      - name: Clean .npmrc for OIDC auth
+        # setup-node writes always-auth=true and _authToken=${NODE_AUTH_TOKEN} which
+        # interfere with the OIDC handshake. Remove them; keep only the registry line.
+        run: sed -i '/always-auth\|NODE_AUTH_TOKEN/d' ~/.npmrc
 
       - name: Set package version from tag
         run: |
