@@ -123,22 +123,33 @@ Ordenados de más usados a menos usados.
 | `tipo_frase` / `TipoFrase` | | Override global de `TipoFrase` (legacy). **Mutuamente exclusivo con `frases`**. |
 | `escenario` / `Escenario` | | Override global de `CodigoEscenario` (legacy). **Mutuamente exclusivo con `frases`**. |
 | `frases` / `Frases` | | **Nuevo.** Lista de frases `{tipo_frase, escenario}`. Reemplaza a `tipo_frase`/`escenario`. Mutuamente exclusivo con ellos. |
-| `auto_fuel_subsidy_frases` / `AutoFuelSubsidyFrases` | | **Nuevo.** Controla la auto-inyección de frases 9/18 y 9/19 en `fuelInvoice()`. Default `true` (o `null`). |
 | `petroleo_rates` / `PetroleoRates` | | Mapa código→tarifa PETROLEO para `fuelInvoice()` (sólo gasolineras). |
 | `timeout` / `Timeout` | | Timeout HTTP. Default 120s (JS: 120000 ms). |
 | `tipo_personeria` / `TipoPersoneria` | | Código de personería del RTU. Sólo aplica a RDON. Default `"1"`. |
 
 Ver detalles y ejemplos por lenguaje en los READMEs respectivos.
 
-## Subsidio combustibles — frases automáticas (9/18 y 9/19)
+## Subsidio combustibles
 
-Durante el **periodo de subsidio** (2026-04-27 (incl.) a 2026-07-27 (excl.)), SAT exige incluir frases especiales `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19` en facturas de combustible. **El SDK las agrega automáticamente** — las integraciones existentes no necesitan cambios.
+El subsidio a la gasolina y al diésel **finalizó el jueves 2 de julio de 2026 a las 24:00**, antes de lo
+previsto: el presupuesto de Q2 mil millones (Decreto 11-2026, reglamentado por el Acuerdo Gubernativo
+64-2026) se agotó por la demanda. Por eso los SDKs **nunca** envían las frases `TipoFrase=9, Escenario=18`
+ni `TipoFrase=9, Escenario=19` por su cuenta — no hay fecha de corte que valga para todos.
 
-Para deshabilitar la auto-inyección (ej. presupuesto agotado):
-- Por ENV VAR (sin deploy): `DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1`
-- Por código: `auto_fuel_subsidy_frases=false` al inicializar el cliente o en cada llamada.
+Las estaciones con inventario adquirido bajo el subsidio deben mantener el precio rebajado hasta agotar ese
+producto, sujeto a verificación. Mientras te quede ese inventario, manda las frases explícitamente con
+`frases`; al agotarlo, deja de mandarlas:
 
-Para control total (frases propias): usa `frases=[...]` en lugar de `tipo_frase`/`escenario`.
+```python
+client.fuel_invoice("CF", items, frases=[
+    {"tipo_frase": "1", "escenario": "1"},   # frase base
+    {"tipo_frase": "9", "escenario": "18"},
+    {"tipo_frase": "9", "escenario": "19"},
+])
+```
+
+La leyenda del subsidio en la representación gráfica la genera Digifact a partir del XML certificado, no
+estos SDKs: al dejar de mandar las frases, deja de imprimirse sola.
 
 ## Variables de entorno
 
@@ -146,8 +157,6 @@ Para control total (frases propias): usa `frases=[...]` en lugar de `tipo_frase`
 DIGIFACT_TAXID=12345678
 DIGIFACT_USERNAME=FELUSER
 DIGIFACT_PASSWORD=...
-# Deshabilita auto-inyección de frases de subsidio sin tocar código:
-# DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1
 ```
 
 ## Estructura del repositorio

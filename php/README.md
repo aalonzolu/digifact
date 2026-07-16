@@ -38,7 +38,6 @@ Ordenados de más usados a menos usados.
 | `tipo_frase` | `?string` | `null` | Sobreescritura global de `TipoFrase` (legacy). **Mutuamente exclusivo con `frases`**. Ver [Configuración de frases](#configuración-de-frases-tipofrase--codigoescenario). |
 | `escenario` | `?string` | `null` | Sobreescritura global de `CodigoEscenario` (legacy). **Mutuamente exclusivo con `frases`**. |
 | `frases` | `?array` | `null` | Lista de frases `[['tipo_frase'=>..., 'escenario'=>...]]`. Reemplaza a `tipo_frase`/`escenario`. **Mutuamente exclusivo** con ellos. Ver [Configuración de frases](#configuración-de-frases-tipofrase--codigoescenario). |
-| `auto_fuel_subsidy_frases` | `?bool` | `null` | Controla la auto-inyección de frases 9/18 y 9/19 en combustible durante el subsidio. `null` = usar default (`true`). Ver [Subsidio combustible](#subsidio-combustible-frases-automáticas). |
 | `petroleo_rates` | `array<string,float>` | `[]` | Mapa código PETROLEO → tarifa por unidad (SUPER/REGULAR/DIESEL). Usado sólo por `fuelInvoice()` (gasolineras). |
 | `timeout` | `int` | `120` | Timeout HTTP en segundos. |
 | `tipo_personeria` | `string` | `"1"` | Código de `TipoPersoneria` del RTU. **Sólo aplica a RDON** (Recibo por Donación); ignóralo en los demás documentos. |
@@ -153,25 +152,19 @@ $result2 = $client->fuelInvoice('CF', [
 | `petroleo_amount` | `float` | — | Impuesto PETROLEO por unidad (omitir para ítems sólo-IVA) |
 | `petroleo_code` | `string` | `'1'` | `'1'`=SUPER, `'2'`=REGULAR, `'4'`=DIESEL. Si se usa sin `petroleo_amount`, el código debe estar en `petroleo_rates` o se lanza `DigifactValidationException`. |
 
-### Subsidio combustible — frases automáticas {#subsidio-combustible-frases-automáticas}
+### Subsidio combustible {#subsidio-combustible}
 
-Durante el **periodo de subsidio de combustibles** (2026-04-27 (incl.) a 2026-07-27 (excl.)), SAT exige incluir frases especiales `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19`. **El SDK las agrega automáticamente** — no se necesita cambiar ningún código existente.
+El subsidio a la gasolina y al diésel **finalizó el jueves 2 de julio de 2026 a las 24:00**, antes de lo previsto: el presupuesto de Q2 mil millones (Decreto 11-2026, reglamentado por el Acuerdo Gubernativo 64-2026) se agotó por la demanda. El SDK **nunca** envía frases de subsidio por su cuenta — no hay fecha de corte que valga para todos: una factura de combustible lleva únicamente la frase base que corresponde a la afiliación del emisor.
+
+Las estaciones con inventario adquirido bajo el subsidio deben mantener el precio rebajado hasta agotar ese producto, sujeto a verificación. Si es tu caso, pasa las frases explícitamente con `frases` mientras te quede ese inventario, y deja de mandarlas al agotarlo:
 
 ```php
-// Sin cambios — el SDK agrega 9/18 y 9/19 automáticamente durante el subsidio
-$result = $client->fuelInvoice('CF', $items);
-
-// Deshabilitarlo por llamada
-$result = $client->fuelInvoice('CF', $items, ['auto_fuel_subsidy_frases' => false]);
-
-// Deshabilitarlo globalmente
-$client = new DigifactClient([..., 'auto_fuel_subsidy_frases' => false]);
-
-// Variable de entorno (sin tocar código): DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1
-
-// Frases completamente personalizadas (deshabilita auto-inyección)
 $result = $client->fuelInvoice('CF', $items, [
-    'frases' => [['tipo_frase' => '1', 'escenario' => '1']],
+    'frases' => [
+        ['tipo_frase' => '1', 'escenario' => '1'],
+        ['tipo_frase' => '9', 'escenario' => '18'],
+        ['tipo_frase' => '9', 'escenario' => '19'],
+    ],
 ]);
 ```
 
@@ -205,7 +198,7 @@ en el caso común.
 Usa `frases` cuando necesitas enviar **más de un par**. Es **mutuamente exclusivo** con `tipo_frase`/`escenario`.
 
 ```php
-// Lista explícita (deshabilita auto-inyección)
+// Lista explícita (reemplaza a tipo_frase/escenario)
 $client->fuelInvoice('CF', $items, [
     'frases' => [['tipo_frase' => '1', 'escenario' => '1']],
 ]);
@@ -250,7 +243,7 @@ Todos los métodos devuelven `DteResult` (con `$result->authNumber`, `series`, `
 |--------|-------|---------|-------------|
 | `invoice()` | `invoice(string\|array $buyer, array $items, array $opts = [])` | `DteResult` | Emite FACT, FCAM, FESP, FPEQ, NABN, RDON, RECI o FACT+CUI según `$opts['doc_type']`. |
 | `ccaInvoice()` | `ccaInvoice(string\|array $buyer, array $items, array $cobros, array $opts = [])` | `DteResult` | FACT con complemento CCA (cobro por cuenta ajena). |
-| `fuelInvoice()` | `fuelInvoice(string\|array $buyer, array $items, array $opts = [])` | `DteResult` | FACT con complemento combustible (IVA + PETROLEO). `$opts['frases']`, `$opts['auto_fuel_subsidy_frases']`. Auto-inyecta 9/18 y 9/19 durante el subsidio. |
+| `fuelInvoice()` | `fuelInvoice(string\|array $buyer, array $items, array $opts = [])` | `DteResult` | FACT con complemento combustible (IVA + PETROLEO). `$opts['frases']`, `$opts['tipo_frase']`, `$opts['escenario']`. El SDK no envía frases de subsidio automáticamente — ver [Subsidio combustible](#subsidio-combustible). |
 | `creditNote()` | `creditNote(string\|array $buyer, array $items, array $origin, string $reason, array $opts = [])` | `DteResult` | Nota de crédito (NCRE) — ajuste parcial del documento origen. |
 | `debitNote()` | `debitNote(string\|array $buyer, array $items, array $origin, string $reason, array $opts = [])` | `DteResult` | Nota de débito (NDEB). |
 | `creditNoteTotal()` | `creditNoteTotal(string $authNumber, string $issueDateTime, string $reason = '...', string $reference = '')` | `array` | Nota de crédito total sobre un DTE previo. |

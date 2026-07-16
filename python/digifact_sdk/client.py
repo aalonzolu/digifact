@@ -128,7 +128,6 @@ class DigifactClient:
         tipo_frase: str | None = None,
         escenario: str | None = None,
         frases: list[dict] | None = None,
-        auto_fuel_subsidy_frases: bool | None = None,
         branch_code: str = "1",
         branch_name: str = "ESTABLECIMIENTO PRINCIPAL",
         timeout: int = 120,
@@ -156,7 +155,6 @@ class DigifactClient:
         self.tipo_frase = tipo_frase
         self.escenario = escenario
         self.frases = frases
-        self.auto_fuel_subsidy_frases = auto_fuel_subsidy_frases
         self.branch_code = branch_code
         self.branch_name = branch_name
         self.timeout = timeout
@@ -522,7 +520,6 @@ class DigifactClient:
         tipo_frase: str | None = None,
         escenario: str | None = None,
         frases: list[dict] | None = None,
-        auto_fuel_subsidy_frases: bool | None = None,
     ) -> DteResult:
         """Emit a combustible (fuel) FACT invoice.
 
@@ -540,13 +537,15 @@ class DigifactClient:
             Items without ``petroleo_amount`` are treated as regular IVA-only items.
         frases:
             Explicit list of ``{"tipo_frase": ..., "escenario": ...}`` dicts.
-            Mutually exclusive with ``tipo_frase``/``escenario``. When set,
-            auto-injection of subsidy frases (9/18, 9/19) is suppressed.
-        auto_fuel_subsidy_frases:
-            Override the client-level or default auto-injection behaviour.
-            ``None`` (default) falls back to the constructor setting, then
-            ``True``. Set to ``False`` (or ``DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1``)
-            to disable auto-injection.
+            Mutually exclusive with ``tipo_frase``/``escenario``.
+
+            The SAT fuel subsidy has ended, so nothing subsidy-related is ever
+            sent on its own. If you are still dispatching inventory bought under
+            the subsidy scheme, pass the frases yourself::
+
+                frases=[{"tipo_frase": "1", "escenario": "1"},
+                        {"tipo_frase": "9", "escenario": "18"},
+                        {"tipo_frase": "9", "escenario": "19"}]
 
         Example::
 
@@ -557,7 +556,6 @@ class DigifactClient:
                  "type": "Bien"},
             ])
         """
-        import os
         from .exceptions import DigifactValidationError
 
         if frases is not None and (tipo_frase is not None or escenario is not None):
@@ -577,16 +575,6 @@ class DigifactClient:
             eff_frases = None
             eff_tf, eff_es = self._resolve_frase("FACT", tipo_frase, escenario)
 
-        # Resolve auto_enabled
-        if auto_fuel_subsidy_frases is not None:
-            auto_enabled = auto_fuel_subsidy_frases
-        elif self.auto_fuel_subsidy_frases is not None:
-            auto_enabled = self.auto_fuel_subsidy_frases
-        else:
-            auto_enabled = True
-        if os.environ.get("DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES", "") == "1":
-            auto_enabled = False
-
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
         resolved = self._apply_petroleo_rates(items)
@@ -600,7 +588,6 @@ class DigifactClient:
             tipo_frase=eff_tf,
             escenario=eff_es,
             frases=eff_frases,
-            auto_fuel_subsidy_frases=auto_enabled,
         )
         data = self._certify(payload)
         return self._parse_result(data)

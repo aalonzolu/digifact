@@ -23,7 +23,6 @@ class DigifactClient
     private ?string $escenario;
     /** @var array<array{tipo_frase:string,escenario:string}>|null */
     private ?array $frases;
-    private ?bool $autoFuelSubsidyFrases;
     private string $branchCode;
     private string $branchName;
     private int $timeout;
@@ -107,7 +106,6 @@ class DigifactClient
         $this->tipoFrase = isset($config['tipo_frase']) ? (string)$config['tipo_frase'] : null;
         $this->escenario = isset($config['escenario']) ? (string)$config['escenario'] : null;
         $this->frases = $config['frases'] ?? null;
-        $this->autoFuelSubsidyFrases = isset($config['auto_fuel_subsidy_frases']) ? (bool)$config['auto_fuel_subsidy_frases'] : null;
         $this->branchCode = (string)($config['branch_code'] ?? '1');
         $this->branchName = (string)($config['branch_name'] ?? 'ESTABLECIMIENTO PRINCIPAL');
         $this->timeout = (int)($config['timeout'] ?? 120);
@@ -566,7 +564,20 @@ class DigifactClient
      * Items without 'petroleo_amount' are treated as regular IVA-only items.
      *
      * @param array $items Each fuel item: description, qty, price, petroleo_amount, petroleo_code, type, unit_of_measure
-     * @param array $opts  Options: tipo_frase, escenario
+     * @param array $opts  Options: tipo_frase, escenario, frases
+     *
+     * $opts['frases'] is an explicit list of ['tipo_frase' => ..., 'escenario' => ...] pairs.
+     * Mutually exclusive with tipo_frase/escenario.
+     *
+     * The SAT fuel subsidy has ended, so nothing subsidy-related is ever sent on its own.
+     * If you are still dispatching inventory bought under the subsidy scheme, pass the
+     * frases yourself:
+     *
+     *   $opts['frases'] = [
+     *       ['tipo_frase' => '1', 'escenario' => '1'],
+     *       ['tipo_frase' => '9', 'escenario' => '18'],
+     *       ['tipo_frase' => '9', 'escenario' => '19'],
+     *   ];
      */
     public function fuelInvoice(string|array $buyer, array $items, array $opts = []): DteResult
     {
@@ -594,25 +605,12 @@ class DigifactClient
             [$effTipoFrase, $effEscenario] = $this->resolveFrase('FACT', $opts);
         }
 
-        // Resolve auto_enabled
-        $callAuto = isset($opts['auto_fuel_subsidy_frases']) ? (bool)$opts['auto_fuel_subsidy_frases'] : null;
-        if ($callAuto !== null) {
-            $autoEnabled = $callAuto;
-        } elseif ($this->autoFuelSubsidyFrases !== null) {
-            $autoEnabled = $this->autoFuelSubsidyFrases;
-        } else {
-            $autoEnabled = true;
-        }
-        if (getenv('DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES') === '1') {
-            $autoEnabled = false;
-        }
-
         [$sellerName, $sellerAddress] = $this->getSellerInfo();
         $buyerArr = $this->resolveBuyer($buyer);
         $resolved = $this->applyPetroleoRates($items);
         $payload = DteBuilder::buildFactCombustible(
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $resolved, $this->afiliacionIva,
-            $effTipoFrase, $effEscenario, null, $effFrases, $autoEnabled
+            $effTipoFrase, $effEscenario, null, $effFrases
         );
         $data = $this->certify($payload);
         return DteResult::fromArray($data);

@@ -51,10 +51,7 @@ function resolveFrase(docType, afiliacion, tipoFrase, escenario) {
   ];
 }
 
-// ── Fuel subsidy frases (Tipo 9, Escenarios 18 / 19) ─────────────────────────
-
-export const FUEL_SUBSIDY_START = new Date('2026-04-27T00:00:00');
-export const FUEL_SUBSIDY_END   = new Date('2026-07-27T00:00:00'); // exclusive
+// ── Frases ────────────────────────────────────────────────────────────────────
 
 export function uniqFrases(frases) {
   const seen = new Set();
@@ -66,17 +63,6 @@ export function uniqFrases(frases) {
   return out;
 }
 
-
-
-export function withinSubsidyWindow(issueDtIso) {
-  try {
-    const d = new Date(issueDtIso.slice(0, 10) + 'T00:00:00');
-    return d >= FUEL_SUBSIDY_START && d < FUEL_SUBSIDY_END;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Return the final deduplicated frases list for a fuel invoice.
  * Called only after mutual-exclusivity validation.
@@ -84,11 +70,9 @@ export function withinSubsidyWindow(issueDtIso) {
  * @param {Array|null} frases  Explicit list or null.
  * @param {string|null} tipoFrase  Legacy base TipoFrase or null.
  * @param {string|null} escenario  Legacy base Escenario or null.
- * @param {string} issueDtIso  ISO datetime string of the invoice.
- * @param {boolean} [autoEnabled=true]
  * @returns {Array<{tipo_frase:string, escenario:string}>}
  */
-export function resolveFuelFrases(frases, tipoFrase, escenario, issueDtIso, autoEnabled = true) {
+export function resolveFuelFrases(frases, tipoFrase, escenario) {
   if (frases != null) {
     if (frases.length === 0) throw new Error('frases must contain at least one {tipo_frase, escenario} pair');
     return uniqFrases(frases);
@@ -96,10 +80,6 @@ export function resolveFuelFrases(frases, tipoFrase, escenario, issueDtIso, auto
   const result = [];
   if (tipoFrase != null && escenario != null) {
     result.push({ tipo_frase: tipoFrase, escenario });
-  }
-  if (autoEnabled && withinSubsidyWindow(issueDtIso)) {
-    result.push({ tipo_frase: '9', escenario: '18' });
-    result.push({ tipo_frase: '9', escenario: '19' });
   }
   return uniqFrases(result);
 }
@@ -163,8 +143,9 @@ function buildSeller(taxid, name, address, {
   if (email) seller.Contact = { EmailList: { Email: [email] } };
   // AdditionlInfo — intentional typo per SAT/Digifact spec.
   // The API generates <dte:Frases> in the certified XML exclusively from this field.
-  // Multiple frases (e.g. base + subsidy 9/18 + 9/19) are encoded as repeated
-  // TipoFrase/Escenario pairs in the same flat array; the API reads them in pairs.
+  // Multiple frases are encoded as repeated TipoFrase/Escenario pairs in the same
+  // flat array; Digifact's XSLT groups entries by 1-based Data index into separate
+  // <dte:Frase> elements.
   if (frases != null && frases.length > 0) {
     // Data acts as the frase group index (1-based); all entries with Data='1' collapse to one frase.
     seller.AdditionlInfo = frases.flatMap((f, i) => [
@@ -695,7 +676,6 @@ export function buildFactCombustible(taxid, sellerName, sellerAddress, buyer, it
   tipoFrase = null,
   escenario = null,
   frases = null,
-  autoFuelSubsidyFrases = true,
   sellerEmail = null,
 } = {}) {
   if (frases != null && (tipoFrase != null || escenario != null)) {
@@ -704,8 +684,8 @@ export function buildFactCombustible(taxid, sellerName, sellerAddress, buyer, it
   const [isoNow] = gtNow();
   const { lineItems, grandTotal, totalIva, totalPetroleo } = buildFuelItems(items);
   const [tf, es] = resolveFrase('FACT', afiliacion, tipoFrase, escenario);
-  const resolvedFrases = resolveFuelFrases(frases, tf, es, isoNow, autoFuelSubsidyFrases);
-  // All frases (base + any subsidy) go into Seller.AdditionlInfo as repeated pairs —
+  const resolvedFrases = resolveFuelFrases(frases, tf, es);
+  // All frases go into Seller.AdditionlInfo as repeated pairs —
   // that is the field the API reads to generate <dte:Frases> in the certified XML.
   const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, frases: resolvedFrases, email: sellerEmail });
 

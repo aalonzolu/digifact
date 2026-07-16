@@ -155,7 +155,6 @@ Ordenadas de más usadas a menos usadas.
 | `TipoFrase` | `string?` | `null` | Sobreescritura global de `TipoFrase` (legacy). **Mutuamente exclusivo con `Frases`**. Ver abajo. |
 | `Escenario` | `string?` | `null` | Sobreescritura global de `CodigoEscenario` (legacy). **Mutuamente exclusivo con `Frases`**. Ver abajo. |
 | `Frases` | `IReadOnlyList<FraseItem>?` | `null` | Lista de frases `new FraseItem(TipoFrase, Escenario)`. Reemplaza a `TipoFrase`/`Escenario`. **Mutuamente exclusivo** con ellos. Ver abajo. |
-| `AutoFuelSubsidyFrases` | `bool?` | `null` | Controla la auto-inyección de frases 9/18 y 9/19 en combustible durante el subsidio. `null` = usar default (`true`). Ver [Subsidio combustible](#subsidio-combustible-frases-automáticas). |
 | `PetroleoRates` | `IDictionary<string,decimal>?` | `null` | Mapa código PETROLEO→monto para autocompletado en `FuelInvoiceAsync` (sólo gasolineras) |
 | `Timeout` | `TimeSpan` | 120s | Timeout de la solicitud HTTP |
 | `TipoPersoneria` | `string` | `"1"` | Código de personería del RTU de SAT. **Sólo aplica a RDON** (Recibo por Donación); ignóralo en los demás documentos. |
@@ -186,7 +185,7 @@ configurar nada en el caso común.
 Usa `Frases` cuando necesitas enviar **más de un par**. Es **mutuamente exclusivo** con `TipoFrase`/`Escenario`.
 
 ```csharp
-// Lista explícita por llamada (deshabilita auto-inyección)
+// Lista explícita por llamada (reemplaza los valores por defecto)
 await client.FuelInvoiceAsync(buyer, items, frases: new[] {
     new FraseItem("1", "1"),
 });
@@ -198,21 +197,18 @@ var client = new DigifactClient(new DigifactOptions {
 });
 ```
 
-### Subsidio combustible — frases automáticas
+### Subsidio combustible
 
-Durante el **periodo de subsidio de combustibles** (2026-04-27 (incl.) a 2026-07-27 (excl.)), el SDK agrega automáticamente `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19` en facturas de combustible.
+El subsidio a la gasolina y al diésel **finalizó el jueves 2 de julio de 2026 a las 24:00**, antes de lo previsto: el presupuesto de Q2 mil millones (Decreto 11-2026, reglamentado por el Acuerdo Gubernativo 64-2026) se agotó por la demanda. El SDK **nunca** envía frases de subsidio por su cuenta — no hay fecha de corte que valga para todos.
+
+Las estaciones con inventario adquirido bajo el subsidio deben mantener el precio rebajado hasta agotar ese producto, sujeto a verificación. En ese caso las frases se envían **explícitamente** vía `Frases` mientras quede ese inventario:
 
 ```csharp
-// Sin cambios — el SDK agrega 9/18 y 9/19 automáticamente durante el subsidio
-var result = await client.FuelInvoiceAsync(buyer, items);
-
-// Deshabilitarlo por llamada
-var result = await client.FuelInvoiceAsync(buyer, items, autoFuelSubsidyFrases: false);
-
-// Deshabilitarlo globalmente
-var client = new DigifactClient(new DigifactOptions { ..., AutoFuelSubsidyFrases = false });
-
-// Variable de entorno (sin tocar código): DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1
+var result = await client.FuelInvoiceAsync(buyer, items, frases: new[] {
+    new FraseItem("1", "1"),
+    new FraseItem("9", "18"),
+    new FraseItem("9", "19"),
+});
 ```
 
 > **Nota:** `Frases` y `TipoFrase`/`Escenario` son **mutuamente exclusivos** — combinarlos lanza `DigifactValidationException`.
@@ -249,7 +245,7 @@ Todos los métodos de emisión son `async`. Devuelven `DteResult` con `.AuthNumb
 |--------|-------|-------------|
 | `InvoiceAsync()` | `InvoiceAsync(BuyerDetails buyer, IEnumerable<LineItem> items, InvoiceOptions? opts = null, CancellationToken ct = default)` | Emite FACT, FCAM, FESP, FPEQ, NABN, RDON o RECI según `opts.DocType`. |
 | `CcaInvoiceAsync()` | `CcaInvoiceAsync(BuyerDetails buyer, IEnumerable<LineItem> items, IEnumerable<CcaCobro> cobros, string? tipoFrase = null, string? escenario = null, ...)` | FACT con complemento CCA. |
-| `FuelInvoiceAsync()` | `FuelInvoiceAsync(BuyerDetails buyer, IEnumerable<FuelLineItem> items, string? tipoFrase = null, string? escenario = null, IReadOnlyList<FraseItem>? frases = null, bool? autoFuelSubsidyFrases = null, ...)` | FACT con complemento combustible. Auto-inyecta 9/18 y 9/19 durante el subsidio. |
+| `FuelInvoiceAsync()` | `FuelInvoiceAsync(BuyerDetails buyer, IEnumerable<FuelLineItem> items, string? tipoFrase = null, string? escenario = null, IReadOnlyList<FraseItem>? frases = null, ...)` | FACT con complemento combustible. El subsidio ya terminó: para enviar 9/18 y 9/19 pásalas explícitamente en `frases`. |
 | `CreditNoteAsync()` | `CreditNoteAsync(BuyerDetails buyer, IEnumerable<LineItem> items, OriginDoc origin, string reason, string? tipoFrase = null, string? escenario = null, ...)` | Nota de crédito (NCRE). |
 | `DebitNoteAsync()` | `DebitNoteAsync(BuyerDetails buyer, IEnumerable<LineItem> items, OriginDoc origin, string reason, string? tipoFrase = null, string? escenario = null, ...)` | Nota de débito (NDEB). |
 | `CreditNoteTotalAsync()` | `CreditNoteTotalAsync(string authNumber, string issueDateTime, string reason = "...", string reference = "", ...)` | Nota de crédito total. Devuelve `JsonElement`. |

@@ -65,10 +65,7 @@ internal static class DteBuilder
         return (tipoFrase ?? defTf, escenario ?? defEs);
     }
 
-    // ── Fuel subsidy frases (Tipo 9, Escenarios 18 / 19) ─────────────────────
-
-    internal static readonly DateOnly FuelSubsidyStart = new(2026, 4, 27); // inclusive
-    internal static readonly DateOnly FuelSubsidyEnd   = new(2026, 7, 27); // exclusive
+    // ── Frases ───────────────────────────────────────────────────────────────
 
     private static IReadOnlyList<FraseItem> UniqFrases(IEnumerable<FraseItem> frases)
     {
@@ -83,24 +80,13 @@ internal static class DteBuilder
     }
 
 
-    internal static bool WithinSubsidyWindow(string issueDtIso)
-    {
-        try
-        {
-            var d = DateOnly.Parse(issueDtIso[..10]);
-            return d >= FuelSubsidyStart && d < FuelSubsidyEnd;
-        }
-        catch { return false; }
-    }
-
     /// <summary>
     /// Return the final deduplicated frases list for a fuel invoice.
     /// Called only after mutual-exclusivity validation.
     /// </summary>
     internal static IReadOnlyList<FraseItem> ResolveFuelFrases(
         IReadOnlyList<FraseItem>? frases,
-        string? tipoFrase, string? escenario,
-        string issueDtIso, bool autoEnabled = true)
+        string? tipoFrase, string? escenario)
     {
         if (frases is not null)
         {
@@ -111,11 +97,6 @@ internal static class DteBuilder
         var result = new List<FraseItem>();
         if (tipoFrase is not null && escenario is not null)
             result.Add(new FraseItem(tipoFrase, escenario));
-        if (autoEnabled && WithinSubsidyWindow(issueDtIso))
-        {
-            result.Add(new FraseItem("9", "18"));
-            result.Add(new FraseItem("9", "19"));
-        }
         return UniqFrases(result);
     }
 
@@ -880,8 +861,7 @@ internal static class DteBuilder
         string? tipoFrase = null,
         string? escenario = null,
         string? sellerEmail = null,
-        IReadOnlyList<FraseItem>? frases = null,
-        bool autoFuelSubsidyFrases = true)
+        IReadOnlyList<FraseItem>? frases = null)
     {
         if (frases is not null && (tipoFrase is not null || escenario is not null))
             throw new DigifactValidationException(
@@ -890,7 +870,9 @@ internal static class DteBuilder
         var (isoNow, _, _) = TaxHelper.GtNow();
         var (lineItems, grandTotal, totalIva, totalPetroleo) = BuildFuelItems(items);
         var (tf, es) = ResolveFrase("FACT", afiliacion, tipoFrase, escenario);
-        var resolvedFrases = ResolveFuelFrases(frases, tf, es, isoNow, autoFuelSubsidyFrases);
+        var resolvedFrases = ResolveFuelFrases(frases, tf, es);
+        // All frases go into Seller.AdditionlInfo as repeated pairs — that is the field
+        // the API reads to generate <dte:Frases> in the certified XML.
         var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion,
             email: sellerEmail, frases: resolvedFrases);
 

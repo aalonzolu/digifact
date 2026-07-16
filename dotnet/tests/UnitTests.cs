@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Digifact.Fel;
 using Xunit;
 
@@ -317,50 +318,75 @@ public class FuelFrasesTests
     private static (string, string)[] PairsFromFrases(IReadOnlyList<FraseItem> frases) =>
         frases.Select(f => (f.TipoFrase, f.Escenario)).ToArray();
 
-    [Fact]
-    public void ResolveFuelFrases_WithinWindow_AutoInjects18And19()
+    private static FuelLineItem[] FuelItems() => new[]
     {
-        var result = DteBuilder.ResolveFuelFrases(null, "1", "1", "2026-06-01T10:00:00", autoEnabled: true);
-        var pairs = PairsFromFrases(result);
-        Assert.Contains(("1", "1"), pairs);
-        Assert.Contains(("9", "18"), pairs);
-        Assert.Contains(("9", "19"), pairs);
-        Assert.Equal(3, result.Count);
+        new FuelLineItem { Description = "GASOLINA SUPER", Qty = 1, Price = 30.30m, PetroleoAmount = 4.70m, PetroleoCode = "1" },
+    };
+
+    [Fact]
+    public void ResolveFuelFrases_BasePairOnly()
+    {
+        // Subsidy ended: the SDK never injects frases on its own.
+        var result = DteBuilder.ResolveFuelFrases(null, "1", "1");
+        Assert.Equal(new[] { ("1", "1") }, PairsFromFrases(result));
     }
 
     [Fact]
-    public void ResolveFuelFrases_CustomFrases_SuppressesAutoInject()
+    public void ResolveFuelFrases_ExplicitFrases_ReplaceDefaults()
     {
         var custom = new[] { new FraseItem("2", "1") };
-        var result = DteBuilder.ResolveFuelFrases(custom, null, null, "2026-06-01T10:00:00", autoEnabled: true);
-        Assert.Single(result);
-        Assert.Equal("2", result[0].TipoFrase);
-        Assert.DoesNotContain(result, f => f.TipoFrase == "9");
-    }
-
-    [Fact]
-    public void ResolveFuelFrases_AutoDisabled_NoInject()
-    {
-        var result = DteBuilder.ResolveFuelFrases(null, "1", "1", "2026-06-01T10:00:00", autoEnabled: false);
-        Assert.Single(result);
-        Assert.DoesNotContain(result, f => f.TipoFrase == "9");
+        var result = DteBuilder.ResolveFuelFrases(custom, null, null);
+        Assert.Equal(new[] { ("2", "1") }, PairsFromFrases(result));
     }
 
     [Fact]
     public void ResolveFuelFrases_Deduplication()
     {
         var dupes = new[] { new FraseItem("9", "18"), new FraseItem("9", "18"), new FraseItem("9", "19") };
-        var result = DteBuilder.ResolveFuelFrases(dupes, null, null, "2026-06-01T10:00:00", autoEnabled: true);
+        var result = DteBuilder.ResolveFuelFrases(dupes, null, null);
         Assert.Equal(2, result.Count);
     }
 
     [Fact]
-    public void ResolveFuelFrases_OutsideWindow_NoInject()
+    public void ResolveFuelFrases_EmptyFrases_Throws()
     {
-        var before = DteBuilder.ResolveFuelFrases(null, "1", "1", "2026-04-26T10:00:00", autoEnabled: true);
-        Assert.Single(before);
-        var after = DteBuilder.ResolveFuelFrases(null, "1", "1", "2026-07-27T10:00:00", autoEnabled: true);
-        Assert.Single(after);
+        Assert.Throws<DigifactValidationException>(() =>
+            DteBuilder.ResolveFuelFrases(Array.Empty<FraseItem>(), null, null));
+    }
+
+    [Fact]
+    public void BuildFactCombustible_SellerHasBaseFraseInAdditionlInfo()
+    {
+        var payload = DteBuilder.BuildFactCombustible(
+            "12345678", "SELLER", "ADDR", DteBuilder.BuyerCf(), FuelItems());
+        var ai = payload["Seller"]!["AdditionlInfo"]!.AsArray();
+        Assert.True(ai.Count >= 2, "Seller.AdditionlInfo must be present for fuel invoice");
+        Assert.Equal("TipoFrase", (string?)ai[0]!["Name"]);
+        Assert.Equal("1", (string?)ai[0]!["Value"]);
+        Assert.Equal("1", (string?)ai[0]!["Data"]);
+        Assert.Equal("Escenario", (string?)ai[1]!["Name"]);
+        Assert.Equal("1", (string?)ai[1]!["Data"]);
+    }
+
+    [Fact]
+    public void BuildFactCombustible_ExplicitSubsidyFrases_InAdditionlInfo()
+    {
+        // Escape hatch: emitters with subsidised inventory pass 9/18 + 9/19 themselves.
+        var payload = DteBuilder.BuildFactCombustible(
+            "12345678", "SELLER", "ADDR", DteBuilder.BuyerCf(), FuelItems(),
+            frases: new[] { new FraseItem("1", "1"), new FraseItem("9", "18"), new FraseItem("9", "19") });
+
+        var ai = payload["Seller"]!["AdditionlInfo"]!.AsArray();
+        Assert.Equal(6, ai.Count);
+
+        var pairs = new List<(string?, string?)>();
+        for (int i = 0; i + 1 < ai.Count; i += 2)
+            pairs.Add(((string?)ai[i]!["Value"], (string?)ai[i + 1]!["Value"]));
+        Assert.Equal(new (string?, string?)[] { ("1", "1"), ("9", "18"), ("9", "19") }, pairs);
+
+        // Data must be the 1-based frase group index so the API creates separate <dte:Frase> elements.
+        for (int i = 0; i < ai.Count; i++)
+            Assert.Equal((i / 2 + 1).ToString(), (string?)ai[i]!["Data"]);
     }
 
     [Fact]
