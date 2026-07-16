@@ -8,7 +8,7 @@ from .exceptions import (
     DigifactValidationError,
 )
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 __all__ = [
     "DigifactClient",
     "DteResult",

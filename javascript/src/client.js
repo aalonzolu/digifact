@@ -97,6 +97,8 @@ export class DigifactClient {
    *   null (default), uses the defaults table. For GEN, common values are
    *   "1" (ISR régimen sobre utilidades, default) or "2" (ISR opcional
    *   simplificado sobre ingresos).
+   * - `frases` (Array<{tipo_frase, escenario}>|null): Explicit global frases
+   *   list. Mutually exclusive with `tipo_frase`/`escenario`.
    *
    * Misc
    * - `timeout` (number): HTTP request timeout in ms. Default 120000.
@@ -117,6 +119,7 @@ export class DigifactClient {
    * @param {string} [config.tipo_personeria]
    * @param {string} [config.tipo_frase]
    * @param {string} [config.escenario]
+   * @param {Array<object>} [config.frases]
    * @param {string} [config.branch_code]
    * @param {string} [config.branch_name]
    * @param {number} [config.timeout]
@@ -135,7 +138,6 @@ export class DigifactClient {
     tipo_frase: tipoFrase = null,
     escenario = null,
     frases = null,
-    auto_fuel_subsidy_frases: autoFuelSubsidyFrases = null,
     branch_code: branchCode = '1',
     branch_name: branchName = 'ESTABLECIMIENTO PRINCIPAL',
     timeout = 120_000,
@@ -150,7 +152,6 @@ export class DigifactClient {
     this.tipoFrase = tipoFrase;
     this.escenario = escenario;
     this.frases = frases ?? null;
-    this.autoFuelSubsidyFrases = autoFuelSubsidyFrases;
     this.branchCode = branchCode;
     this.branchName = branchName;
     this.timeout = timeout;
@@ -453,8 +454,21 @@ export class DigifactClient {
    * `petroleo_code` ("1"=SUPER, "2"=REGULAR, "4"=DIESEL; default "1").
    * Items without `petroleo_amount` are treated as regular IVA-only items.
    *
-   * @param {string|object} buyer
+   * @param {string|object} buyer  "CF", NIT string, CUI object, or full buyer object.
    * @param {Array<object>} items
+   * @param {object} [opts]
+   * @param {string} [opts.tipo_frase]
+   * @param {string} [opts.escenario]
+   * @param {Array<object>} [opts.frases]  Explicit `{tipo_frase, escenario}` list.
+   *   Mutually exclusive with `tipo_frase`/`escenario`.
+   *
+   *   The SAT fuel subsidy has ended, so nothing subsidy-related is ever sent on
+   *   its own. If you are still dispatching inventory bought under the subsidy
+   *   scheme, pass the frases yourself:
+   *
+   *       frases: [{ tipo_frase: '1', escenario: '1' },
+   *                { tipo_frase: '9', escenario: '18' },
+   *                { tipo_frase: '9', escenario: '19' }]
    * @returns {Promise<DteResult>}
    *
    * @example
@@ -483,14 +497,6 @@ export class DigifactClient {
       [effTipoFrase, effEscenario] = this._resolveFrase('FACT', opts);
     }
 
-    // Resolve auto_enabled
-    let autoEnabled;
-    const callAuto = opts.auto_fuel_subsidy_frases ?? null;
-    if (callAuto != null) autoEnabled = callAuto;
-    else if (this.autoFuelSubsidyFrases != null) autoEnabled = this.autoFuelSubsidyFrases;
-    else autoEnabled = true;
-    if (process.env.DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES === '1') autoEnabled = false;
-
     const [sellerName, sellerAddress] = await this._getSellerInfo();
     const buyerObj = await this._resolveBuyer(buyer);
     const resolved = this._applyPetroleoRates(items);
@@ -499,7 +505,6 @@ export class DigifactClient {
       tipoFrase: effTipoFrase,
       escenario: effEscenario,
       frases: effFrases,
-      autoFuelSubsidyFrases: autoEnabled,
     });
     const data = await this._certify(payload);
     return DteResult.fromResponse(data);

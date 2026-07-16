@@ -290,7 +290,7 @@ class TestBuilderUnit(unittest.TestCase):
 
 
 class TestFuelFrases(unittest.TestCase):
-    """Unit tests for frases[] / auto-fuel-subsidy-injection logic."""
+    """Unit tests for frases[] resolution on fuel invoices."""
 
     def _buyer(self):
         return {"TaxID": "CF", "Name": "CONSUMIDOR FINAL",
@@ -310,65 +310,46 @@ class TestFuelFrases(unittest.TestCase):
             i += 2
         return frases
 
-    def test_non_fuel_invoice_no_subsidy_frases(self):
+    def test_non_fuel_invoice_has_base_frase_only(self):
         from digifact_sdk.builder import build_fact
         buyer = self._buyer()
         payload = build_fact("12345678", "TEST", "CALLE", buyer=buyer,
                              items=[{"description": "X", "qty": 1, "price": 100.0}])
         frases = self._additionl_frases(payload)
         self.assertEqual(len(frases), 1, "Regular invoice must have only the base frase")
-        self.assertNotIn(("9", "18"), frases)
-        self.assertNotIn(("9", "19"), frases)
 
-    def test_fuel_within_window_auto_inject(self):
-        from digifact_sdk.builder import build_fact_combustible, resolve_fuel_frases
-        # Use resolve_fuel_frases directly with a date known to be in window
-        result = resolve_fuel_frases(None, "1", "1", "2026-06-01T10:00:00", auto_enabled=True)
+    def test_fuel_base_frase_only(self):
+        from digifact_sdk.builder import resolve_fuel_frases
+        result = resolve_fuel_frases(None, "1", "1")
         tf_es = [(f["tipo_frase"], f["escenario"]) for f in result]
-        self.assertIn(("1", "1"), tf_es, "Base frase must be present")
-        self.assertIn(("9", "18"), tf_es, "Escenario 18 must be auto-injected")
-        self.assertIn(("9", "19"), tf_es, "Escenario 19 must be auto-injected")
-        self.assertEqual(len(result), 3)
+        self.assertEqual(tf_es, [("1", "1")], "Nothing may be added to the base frase")
 
-    def test_fuel_custom_frases_no_auto_inject(self):
+    def test_fuel_explicit_frases_replace_base(self):
         from digifact_sdk.builder import resolve_fuel_frases
         custom = [{"tipo_frase": "2", "escenario": "1"}]
-        result = resolve_fuel_frases(custom, None, None, "2026-06-01T10:00:00", auto_enabled=True)
+        result = resolve_fuel_frases(custom, None, None)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["tipo_frase"], "2")
-        self.assertNotIn(("9", "18"), [(f["tipo_frase"], f["escenario"]) for f in result])
 
-    def test_fuel_auto_disabled_no_inject(self):
+    def test_empty_frases_raises(self):
         from digifact_sdk.builder import resolve_fuel_frases
-        result = resolve_fuel_frases(None, "1", "1", "2026-06-01T10:00:00", auto_enabled=False)
-        tf_es = [(f["tipo_frase"], f["escenario"]) for f in result]
-        self.assertEqual(len(result), 1)
-        self.assertNotIn(("9", "18"), tf_es)
-        self.assertNotIn(("9", "19"), tf_es)
+        from digifact_sdk.exceptions import DigifactValidationError
+        with self.assertRaises(DigifactValidationError):
+            resolve_fuel_frases([], None, None)
 
     def test_deduplication(self):
         from digifact_sdk.builder import resolve_fuel_frases
         dupes = [{"tipo_frase": "9", "escenario": "18"},
                  {"tipo_frase": "9", "escenario": "18"},
                  {"tipo_frase": "9", "escenario": "19"}]
-        result = resolve_fuel_frases(dupes, None, None, "2026-06-01T10:00:00", auto_enabled=True)
+        result = resolve_fuel_frases(dupes, None, None)
         self.assertEqual(len(result), 2)
-
-    def test_outside_window_no_inject(self):
-        from digifact_sdk.builder import resolve_fuel_frases
-        # Date before window
-        result_before = resolve_fuel_frases(None, "1", "1", "2026-04-26T10:00:00", auto_enabled=True)
-        self.assertEqual(len(result_before), 1)
-        # Date after window
-        result_after = resolve_fuel_frases(None, "1", "1", "2026-07-27T10:00:00", auto_enabled=True)
-        self.assertEqual(len(result_after), 1)
 
     def test_build_fact_combustible_seller_has_additionl_info(self):
         from digifact_sdk.builder import build_fact_combustible
         payload = build_fact_combustible(
             "12345678", "SELLER", "ADDR",
             buyer=self._buyer(), items=self._items(),
-            auto_fuel_subsidy_frases=False,
         )
         ai = payload["Seller"].get("AdditionlInfo", [])
         self.assertTrue(len(ai) >= 2, "Seller.AdditionlInfo must be present for fuel invoice")
@@ -378,25 +359,33 @@ class TestFuelFrases(unittest.TestCase):
         self.assertEqual(ai[1]["Name"], "Escenario")
         self.assertEqual(ai[1]["Data"], "1")
 
-    def test_build_fact_combustible_subsidy_frases_in_additionl_info(self):
+    def test_build_fact_combustible_sends_only_base_frase(self):
         from digifact_sdk.builder import build_fact_combustible
         payload = build_fact_combustible(
             "12345678", "SELLER", "ADDR",
             buyer=self._buyer(), items=self._items(),
-            tipo_frase="1", escenario="1", auto_fuel_subsidy_frases=True,
+            tipo_frase="1", escenario="1",
+        )
+        pairs = self._additionl_frases(payload)
+        self.assertEqual(pairs, [("1", "1")], "Fuel invoices must not carry frases nobody asked for")
+
+    def test_build_fact_combustible_explicit_subsidy_frases(self):
+        """Emitters still dispatching subsidised stock pass 9/18 + 9/19 themselves."""
+        from digifact_sdk.builder import build_fact_combustible
+        payload = build_fact_combustible(
+            "12345678", "SELLER", "ADDR",
+            buyer=self._buyer(), items=self._items(),
+            frases=[{"tipo_frase": "1", "escenario": "1"},
+                    {"tipo_frase": "9", "escenario": "18"},
+                    {"tipo_frase": "9", "escenario": "19"}],
         )
         ai = payload["Seller"].get("AdditionlInfo", [])
         pairs = [(ai[i]["Value"], ai[i+1]["Value"]) for i in range(0, len(ai) - 1, 2)]
-        tipo_frases = [tf for tf, _ in pairs]
-        self.assertIn("1", tipo_frases, "TipoFrase=1 must be in AdditionlInfo")
-        # Within subsidy window: 9/18 and 9/19 must also be present
-        if len(pairs) > 1:
-            self.assertIn(("9", "18"), pairs, "9/18 must be in AdditionlInfo when within subsidy window")
-            self.assertIn(("9", "19"), pairs, "9/19 must be in AdditionlInfo when within subsidy window")
-            # Data must be the 1-based frase group index so the API creates separate <dte:Frase> elements
-            for idx, entry in enumerate(ai):
-                expected_data = str(idx // 2 + 1)
-                self.assertEqual(entry["Data"], expected_data, f"ai[{idx}]['Data'] must equal frase group index")
+        self.assertEqual(pairs, [("1", "1"), ("9", "18"), ("9", "19")])
+        # Data must be the 1-based frase group index so the API creates separate <dte:Frase> elements
+        for idx, entry in enumerate(ai):
+            expected_data = str(idx // 2 + 1)
+            self.assertEqual(entry["Data"], expected_data, f"ai[{idx}]['Data'] must equal frase group index")
 
     def test_mutual_exclusivity_raises(self):
         from digifact_sdk.builder import build_fact_combustible
@@ -669,10 +658,6 @@ class TestGetDte(unittest.TestCase):
 @unittest.skipIf(SKIP, SKIP_REASON)
 class TestFuelInvoice(unittest.TestCase):
     def test_fuel_invoice_cf_mixed_items(self):
-        import base64, re as _re
-        is_production = ENV == "production"
-        # Test env does not support TipoFrase=9 (subsidio) — disable auto-injection there.
-        # On production, the default (True) applies and subsidio frases are included automatically.
         result = _client().fuel_invoice(
             "CF",
             [
@@ -682,22 +667,9 @@ class TestFuelInvoice(unittest.TestCase):
                  "petroleo_amount": 4.60, "petroleo_code": "2", "type": "Bien"},
                 {"description": "FILTRO DE ACEITE",  "qty": 1, "price": 45.00, "type": "Bien"},
             ],
-            auto_fuel_subsidy_frases=is_production,
         )
         self.assertTrue(result.auth_number, "Expected auth_number")
         print(f"\n  FACT Combustible auth: {result.auth_number}")
-
-        if is_production:
-            # Verify subsidio frases appear in the certified XML
-            dte   = _client().get_dte(result.auth_number, "XML")
-            b64   = (dte.get("RESPONSE") or [{}])[0].get("ResponseData1") or dte.get("responseData1", "")
-            self.assertTrue(b64, "ResponseData1 must be present")
-            xml   = base64.b64decode(b64).decode("utf-8", errors="replace")
-            frases = _re.findall(r'TipoFrase="\d+" CodigoEscenario="\d+"', xml)
-            print(f"  Frases en XML: {', '.join(frases)}")
-            self.assertIn('TipoFrase="9"',        xml, "TipoFrase=9 must appear in certified XML")
-            self.assertIn('CodigoEscenario="18"', xml, "CodigoEscenario=18 must appear in certified XML")
-            self.assertIn('CodigoEscenario="19"', xml, "CodigoEscenario=19 must appear in certified XML")
 
 
 if __name__ == "__main__":

@@ -19,9 +19,7 @@ class DteBuilder
     private const ADENDA_CODE_ALT = 'FRONT-67C1-4545-BA1E-AA3C115E18D6';
     private const ALT_ADENDA_TYPES = ['NABN', 'RDON', 'RECI'];
 
-    // ── Fuel subsidy frases (Tipo 9, Escenarios 18 / 19) ─────────────────────
-    public const FUEL_SUBSIDY_START = '2026-04-27'; // inclusive
-    public const FUEL_SUBSIDY_END   = '2026-07-27'; // exclusive
+    // ── Frases ───────────────────────────────────────────────────────────────
 
     private static function uniqFrases(array $frases): array
     {
@@ -38,36 +36,19 @@ class DteBuilder
     }
 
 
-
-    private static function withinSubsidyWindow(string $issueDtIso): bool
-    {
-        try {
-            $d = new \DateTimeImmutable(substr($issueDtIso, 0, 10));
-            $start = new \DateTimeImmutable(self::FUEL_SUBSIDY_START);
-            $end   = new \DateTimeImmutable(self::FUEL_SUBSIDY_END);
-            return $d >= $start && $d < $end;
-        } catch (\Throwable) {
-            return false;
-        }
-    }
-
     /**
      * Return the final deduplicated frases list for a fuel invoice.
      * Called only after mutual-exclusivity validation.
      *
      * @param array|null  $frases       Explicit list or null.
-     * @param string|null $tipoFrase    Legacy base TipoFrase or null.
-     * @param string|null $escenario    Legacy base Escenario or null.
-     * @param string      $issueDtIso   ISO datetime string of the invoice.
-     * @param bool        $autoEnabled
+     * @param string|null $tipoFrase    Base TipoFrase or null.
+     * @param string|null $escenario    Base Escenario or null.
      * @return array<array{tipo_frase:string, escenario:string}>
      */
     public static function resolveFuelFrases(
         ?array $frases,
         ?string $tipoFrase,
-        ?string $escenario,
-        string $issueDtIso,
-        bool $autoEnabled = true
+        ?string $escenario
     ): array {
         if ($frases !== null) {
             if (count($frases) === 0) {
@@ -78,10 +59,6 @@ class DteBuilder
         $result = [];
         if ($tipoFrase !== null && $escenario !== null) {
             $result[] = ['tipo_frase' => $tipoFrase, 'escenario' => $escenario];
-        }
-        if ($autoEnabled && self::withinSubsidyWindow($issueDtIso)) {
-            $result[] = ['tipo_frase' => '9', 'escenario' => '18'];
-            $result[] = ['tipo_frase' => '9', 'escenario' => '19'];
         }
         return self::uniqFrases($result);
     }
@@ -958,6 +935,8 @@ class DteBuilder
      * optionally 'petroleo_code' (SAT code: "1"=SUPER, "2"=REGULAR, "4"=DIESEL; default "1").
      * Items without 'petroleo_amount' are treated as regular IVA-only items.
      *
+     * $frases and $tipoFrase/$escenario are mutually exclusive.
+     *
      * Example fuel item:
      *   ['description' => 'GASOLINA SUPER', 'qty' => 1, 'price' => 30.30,
      *    'petroleo_amount' => 4.70, 'petroleo_code' => '1', 'type' => 'Bien']
@@ -975,8 +954,7 @@ class DteBuilder
         ?string $tipoFrase = null,
         ?string $escenario = null,
         ?string $sellerEmail = null,
-        ?array $frases = null,
-        bool $autoFuelSubsidyFrases = true
+        ?array $frases = null
     ): array {
         if ($frases !== null && ($tipoFrase !== null || $escenario !== null)) {
             throw new DigifactValidationException(
@@ -992,9 +970,9 @@ class DteBuilder
         $tf = $tipoFrase ?? $defTf;
         $es = $escenario ?? $defEs;
 
-        $resolvedFrases = self::resolveFuelFrases($frases, $tf, $es, $isoNow, $autoFuelSubsidyFrases);
+        $resolvedFrases = self::resolveFuelFrases($frases, $tf, $es);
 
-        // All frases (base + any subsidy) go into Seller.AdditionlInfo as repeated pairs —
+        // All frases go into Seller.AdditionlInfo as repeated pairs —
         // that is the field the API reads to generate <dte:Frases> in the certified XML.
         $seller = self::buildSeller(
             $taxid, $sellerName, $sellerAddress,

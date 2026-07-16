@@ -222,7 +222,7 @@ class IntegrationTest extends TestCase
         return $frases;
     }
 
-    public function testFuelFrasesNonFuelNoSubsidy(): void
+    public function testNonFuelInvoiceHasBaseFraseOnly(): void
     {
         $buyer = DteBuilder::buyerNit('12345678', 'TEST');
         $payload = DteBuilder::buildFact('12345678', 'TEST', 'CALLE', $buyer,
@@ -233,33 +233,19 @@ class IntegrationTest extends TestCase
         $this->assertNotContains(['9', '19'], $frases);
     }
 
-    public function testFuelFrasesWithinWindowAutoInject(): void
-    {
-        $result = DteBuilder::resolveFuelFrases(null, '1', '1', '2026-06-01T10:00:00', true);
-        $pairs = array_map(fn($f) => [$f['tipo_frase'], $f['escenario']], $result);
-        $this->assertContains(['1', '1'], $pairs, 'Base frase must be present');
-        $this->assertContains(['9', '18'], $pairs, 'Escenario 18 must be auto-injected');
-        $this->assertContains(['9', '19'], $pairs, 'Escenario 19 must be auto-injected');
-        $this->assertCount(3, $result);
-    }
-
-    public function testFuelFrasesCustomNoAutoInject(): void
+    public function testFuelFrasesExplicitReplacesBaseFrase(): void
     {
         $custom = [['tipo_frase' => '2', 'escenario' => '1']];
-        $result = DteBuilder::resolveFuelFrases($custom, null, null, '2026-06-01T10:00:00', true);
+        $result = DteBuilder::resolveFuelFrases($custom, null, null);
         $this->assertCount(1, $result);
         $this->assertSame('2', $result[0]['tipo_frase']);
-        $pairs = array_map(fn($f) => [$f['tipo_frase'], $f['escenario']], $result);
-        $this->assertNotContains(['9', '18'], $pairs);
+        $this->assertSame('1', $result[0]['escenario']);
     }
 
-    public function testFuelFrasesAutoDisabled(): void
+    public function testFuelFrasesEmptyListThrows(): void
     {
-        $result = DteBuilder::resolveFuelFrases(null, '1', '1', '2026-06-01T10:00:00', false);
-        $this->assertCount(1, $result);
-        $pairs = array_map(fn($f) => [$f['tipo_frase'], $f['escenario']], $result);
-        $this->assertNotContains(['9', '18'], $pairs);
-        $this->assertNotContains(['9', '19'], $pairs);
+        $this->expectException(DigifactValidationException::class);
+        DteBuilder::resolveFuelFrases([], null, null);
     }
 
     public function testFuelFrasesDeduplication(): void
@@ -269,24 +255,15 @@ class IntegrationTest extends TestCase
             ['tipo_frase' => '9', 'escenario' => '18'],
             ['tipo_frase' => '9', 'escenario' => '19'],
         ];
-        $result = DteBuilder::resolveFuelFrases($dupes, null, null, '2026-06-01T10:00:00', true);
+        $result = DteBuilder::resolveFuelFrases($dupes, null, null);
         $this->assertCount(2, $result);
-    }
-
-    public function testFuelFrasesOutsideWindow(): void
-    {
-        $before = DteBuilder::resolveFuelFrases(null, '1', '1', '2026-04-26T10:00:00', true);
-        $this->assertCount(1, $before);
-        $after = DteBuilder::resolveFuelFrases(null, '1', '1', '2026-07-27T10:00:00', true);
-        $this->assertCount(1, $after);
     }
 
     public function testBuildFactCombustibleSellerHasAdditionlInfo(): void
     {
         $payload = DteBuilder::buildFactCombustible(
             '12345678', 'SELLER', 'ADDR',
-            $this->getBuyer(), $this->getFuelItems(),
-            autoFuelSubsidyFrases: false
+            $this->getBuyer(), $this->getFuelItems()
         );
         $ai = $payload['Seller']['AdditionlInfo'] ?? [];
         $this->assertNotEmpty($ai, 'Seller.AdditionlInfo must be present for fuel invoice');
@@ -297,30 +274,39 @@ class IntegrationTest extends TestCase
         $this->assertSame('1', $ai[1]['Data']);
     }
 
-    public function testBuildFactCombustibleSubsidyFrasesInAdditionlInfo(): void
+    public function testBuildFactCombustibleSendsOnlyTheBaseFraseByDefault(): void
     {
         $payload = DteBuilder::buildFactCombustible(
             '12345678', 'SELLER', 'ADDR',
             $this->getBuyer(), $this->getFuelItems(),
-            tipoFrase: '1', escenario: '1', autoFuelSubsidyFrases: true
+            tipoFrase: '1', escenario: '1'
+        );
+        $pairs = $this->getFrasesFromPayload($payload);
+        $this->assertSame([['1', '1']], $pairs, 'The SDK must never add frases on its own');
+    }
+
+    public function testBuildFactCombustibleExplicitFrasesArePassedThrough(): void
+    {
+        // The SAT fuel subsidy ended: emitters still dispatching subsidised inventory
+        // must be able to send 9/18 and 9/19 by passing them explicitly.
+        $payload = DteBuilder::buildFactCombustible(
+            '12345678', 'SELLER', 'ADDR',
+            $this->getBuyer(), $this->getFuelItems(),
+            frases: [
+                ['tipo_frase' => '1', 'escenario' => '1'],
+                ['tipo_frase' => '9', 'escenario' => '18'],
+                ['tipo_frase' => '9', 'escenario' => '19'],
+            ]
         );
         $ai = $payload['Seller']['AdditionlInfo'] ?? [];
-        // Parse pairs from flat array
-        $pairs = [];
-        for ($i = 0; $i + 1 < count($ai); $i += 2) {
-            $pairs[] = [$ai[$i]['Value'], $ai[$i + 1]['Value']];
-        }
-        $tipoFrases = array_column($pairs, 0);
-        $this->assertContains('1', $tipoFrases, 'TipoFrase=1 must be in AdditionlInfo');
-        // Within subsidy window: 9/18 and 9/19 must be present
-        if (count($pairs) > 1) {
-            $this->assertContains(['9', '18'], $pairs, '9/18 must be in AdditionlInfo when within subsidy window');
-            $this->assertContains(['9', '19'], $pairs, '9/19 must be in AdditionlInfo when within subsidy window');
-            // Data must be the 1-based frase group index so the API creates separate <dte:Frase> elements
-            for ($i = 0; $i < count($ai); $i++) {
-                $expectedData = (string)(intdiv($i, 2) + 1);
-                $this->assertSame($expectedData, $ai[$i]['Data'], "ai[$i]['Data'] must equal frase group index");
-            }
+        $this->assertSame(
+            [['1', '1'], ['9', '18'], ['9', '19']],
+            $this->getFrasesFromPayload($payload)
+        );
+        // Data must be the 1-based frase group index so the API creates separate <dte:Frase> elements
+        for ($i = 0; $i < count($ai); $i++) {
+            $expectedData = (string)(intdiv($i, 2) + 1);
+            $this->assertSame($expectedData, $ai[$i]['Data'], "ai[$i]['Data'] must equal frase group index");
         }
     }
 
@@ -523,28 +509,12 @@ class IntegrationTest extends TestCase
     public function testFuelInvoice(): void
     {
         $client = $this->requireClient();
-        $isProduction = strtolower(getenv('DIGIFACT_ENVIRONMENT') ?: 'test') === 'production';
-        // Test env does not support TipoFrase=9 (subsidio) — disable auto-injection there.
-        // On production, the default (true) applies and subsidio frases are included automatically.
         $result = $client->fuelInvoice('CF', [
             ['description' => 'GASOLINA SUPER',    'qty' => 1, 'price' => 35.00, 'petroleo_amount' => 4.70, 'petroleo_code' => '1', 'type' => 'Bien'],
             ['description' => 'GASOLINA REGULAR',  'qty' => 1, 'price' => 34.00, 'petroleo_amount' => 4.60, 'petroleo_code' => '2', 'type' => 'Bien'],
             ['description' => 'FILTRO DE ACEITE',  'qty' => 1, 'price' => 45.00, 'type' => 'Bien'],
-        ], ['auto_fuel_subsidy_frases' => $isProduction]);
+        ]);
         $this->assertNotEmpty($result->authNumber);
         echo "\n  FACT Combustible auth: " . $result->authNumber;
-
-        if ($isProduction) {
-            // Verify subsidio frases appear in the certified XML
-            $dte = $client->getDte($result->authNumber, 'XML');
-            $b64 = $dte['RESPONSE'][0]['ResponseData1'] ?? $dte['responseData1'] ?? '';
-            $this->assertNotEmpty($b64, 'ResponseData1 must be present');
-            $xml = (string)base64_decode($b64);
-            preg_match_all('/TipoFrase="\d+" CodigoEscenario="\d+"/', $xml, $fraseMatches);
-            echo "\n  Frases en XML: " . implode(', ', $fraseMatches[0]);
-            $this->assertStringContainsString('TipoFrase="9"',        $xml, 'TipoFrase=9 must appear in certified XML');
-            $this->assertStringContainsString('CodigoEscenario="18"', $xml, 'CodigoEscenario=18 must appear in certified XML');
-            $this->assertStringContainsString('CodigoEscenario="19"', $xml, 'CodigoEscenario=19 must appear in certified XML');
-        }
     }
 }

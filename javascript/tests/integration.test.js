@@ -273,41 +273,26 @@ describe('Unit: fuel frases', () => {
     assert.ok(!frases.some(([tf, es]) => tf === '9' && es === '19'));
   });
 
-  test('resolveFuelFrases: within window auto-injects 9/18 and 9/19', () => {
-    const result = resolveFuelFrases(null, '1', '1', '2026-06-01T10:00:00', true);
+  test('resolveFuelFrases: explicit frases replace the base pair', () => {
+    const result = resolveFuelFrases([{ tipo_frase: '2', escenario: '1' }], null, null);
     const pairs = result.map(f => [f.tipo_frase, f.escenario]);
-    assert.deepStrictEqual(pairs, [['1', '1'], ['9', '18'], ['9', '19']]);
-  });
-
-  test('resolveFuelFrases: custom frases suppress auto-injection', () => {
-    const result = resolveFuelFrases([{ tipo_frase: '2', escenario: '1' }], null, null, '2026-06-01T10:00:00', true);
-    assert.equal(result.length, 1);
-    assert.equal(result[0].tipo_frase, '2');
-  });
-
-  test('resolveFuelFrases: auto disabled does not inject', () => {
-    const result = resolveFuelFrases(null, '1', '1', '2026-06-01T10:00:00', false);
-    assert.equal(result.length, 1);
-    assert.ok(!result.some(f => f.tipo_frase === '9'));
+    assert.deepStrictEqual(pairs, [['2', '1']]);
   });
 
   test('resolveFuelFrases: deduplication', () => {
     const dupes = [{ tipo_frase: '9', escenario: '18' }, { tipo_frase: '9', escenario: '18' }, { tipo_frase: '9', escenario: '19' }];
-    const result = resolveFuelFrases(dupes, null, null, '2026-06-01T10:00:00', true);
+    const result = resolveFuelFrases(dupes, null, null);
     assert.equal(result.length, 2);
   });
 
-  test('resolveFuelFrases: outside window does not inject', () => {
-    const before = resolveFuelFrases(null, '1', '1', '2026-04-26T10:00:00', true);
-    assert.equal(before.length, 1);
-    const after = resolveFuelFrases(null, '1', '1', '2026-07-27T10:00:00', true);
-    assert.equal(after.length, 1);
+  test('resolveFuelFrases: empty explicit frases list throws', () => {
+    assert.throws(() => resolveFuelFrases([], null, null), /at least one/);
   });
 
   test('buildFactCombustible seller has base frase in AdditionlInfo', () => {
     const payload = buildFactCombustible('12345678', 'SELLER', 'ADDR', buyerCf(), [
       { description: 'SUPER', qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
-    ], { autoFuelSubsidyFrases: false });
+    ]);
     const ai = payload.Seller.AdditionlInfo ?? [];
     assert.ok(ai.length >= 2, 'Seller.AdditionlInfo must have TipoFrase/Escenario pair');
     assert.equal(ai[0].Name, 'TipoFrase');
@@ -317,24 +302,26 @@ describe('Unit: fuel frases', () => {
     assert.equal(ai[1].Data, '1');
   });
 
-  test('buildFactCombustible seller has subsidy frases 9/18 and 9/19 in AdditionlInfo', () => {
-    // date within window forces auto-injection of 9/18 and 9/19
+  test('buildFactCombustible: explicit frases carry 9/18 and 9/19 through to AdditionlInfo', () => {
+    // The SAT fuel subsidy ended: the SDK never injects 9/18 or 9/19 on its own.
+    // Emitters still dispatching subsidised inventory pass them explicitly.
     const payload = buildFactCombustible('12345678', 'SELLER', 'ADDR', buyerCf(), [
       { description: 'SUPER', qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
-    ], { tipoFrase: '1', escenario: '1', autoFuelSubsidyFrases: true });
+    ], {
+      frases: [
+        { tipo_frase: '1', escenario: '1' },
+        { tipo_frase: '9', escenario: '18' },
+        { tipo_frase: '9', escenario: '19' },
+      ],
+    });
     const ai = payload.Seller.AdditionlInfo ?? [];
     // Parse pairs from flat array
     const pairs = [];
     for (let i = 0; i + 1 < ai.length; i += 2) pairs.push([ai[i].Value, ai[i + 1].Value]);
-    assert.ok(pairs.some(([tf]) => tf === '1'), 'TipoFrase=1 must be in AdditionlInfo');
-    // If we're within the subsidy window, 9/18 and 9/19 must also be there
-    if (pairs.length > 1) {
-      assert.ok(pairs.some(([tf, es]) => tf === '9' && es === '18'), '9/18 must be in AdditionlInfo when within subsidy window');
-      assert.ok(pairs.some(([tf, es]) => tf === '9' && es === '19'), '9/19 must be in AdditionlInfo when within subsidy window');
-      // Data must be the 1-based frase group index so the API creates separate <dte:Frase> elements
-      for (let idx = 0; idx < ai.length; idx++) {
-        assert.equal(ai[idx].Data, String(Math.floor(idx / 2) + 1), `ai[${idx}].Data must equal frase group index`);
-      }
+    assert.deepStrictEqual(pairs, [['1', '1'], ['9', '18'], ['9', '19']]);
+    // Data must be the 1-based frase group index so the API creates separate <dte:Frase> elements
+    for (let idx = 0; idx < ai.length; idx++) {
+      assert.equal(ai[idx].Data, String(Math.floor(idx / 2) + 1), `ai[${idx}].Data must equal frase group index`);
     }
   });
 
@@ -566,42 +553,13 @@ if (SKIP) {
 
   describe('Integration: FACT Combustible', () => {
     test('emit FACT Combustible with mixed items', async () => {
-      // Subsidy frases 9/18 and 9/19 are not supported by the test environment; disable auto-injection here.
-      // Unit tests in 'Unit: fuel frases' verify the correct payload generation.
-      // Run with DIGIFACT_ENVIRONMENT=production to verify subsidio frases in certified XML.
       const result = await CLIENT.fuelInvoice('CF', [
         { description: 'GASOLINA SUPER',    qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
         { description: 'GASOLINA REGULAR',  qty: 1, price: 34.00, petroleo_amount: 4.60, petroleo_code: '2', type: 'Bien' },
         { description: 'FILTRO DE ACEITE',  qty: 1, price: 45.00, type: 'Bien' },
-      ], { auto_fuel_subsidy_frases: ENV === 'production' });
+      ]);
       assert.ok(result.authNumber);
       console.log(`  FACT Combustible auth: ${result.authNumber}`);
     });
   });
-
-  if (ENV === 'production') {
-    describe('Production: Combustible subsidio frases in certified XML', () => {
-      test('certified XML contains TipoFrase=9 CodigoEscenario=18 and 19', async () => {
-        // Build the payload directly so we can access responseData1 from _certify.
-        const [sellerName, sellerAddress] = await CLIENT._getSellerInfo();
-        const payload = buildFactCombustible(TAXID, sellerName, sellerAddress, buyerCf(), [
-          { description: 'GASOLINA SUPER', qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
-        ], { autoFuelSubsidyFrases: true });
-
-        const data = await CLIENT._certify(payload);
-        assert.ok(data.authNumber, 'authNumber must be returned');
-
-        const xmlB64 = data.responseData1 || '';
-        assert.ok(xmlB64, 'responseData1 must be present in certify response (FORMAT=XML)');
-        const xml = Buffer.from(xmlB64, 'base64').toString('utf-8');
-
-        console.log(`  Subsidio auth: ${data.authNumber}`);
-        console.log(`  Frases en XML: ${xml.match(/TipoFrase="\d+" CodigoEscenario="\d+"/g)?.join(', ') ?? 'ninguna encontrada'}`);
-
-        assert.ok(xml.includes('TipoFrase="9"'), 'TipoFrase=9 must appear in certified XML');
-        assert.ok(xml.includes('CodigoEscenario="18"'), 'CodigoEscenario=18 must appear in certified XML');
-        assert.ok(xml.includes('CodigoEscenario="19"'), 'CodigoEscenario=19 must appear in certified XML');
-      });
-    });
-  }
 }

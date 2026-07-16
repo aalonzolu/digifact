@@ -69,17 +69,8 @@ public sealed class DigifactOptions
     /// Global list of frases (TipoFrase + Escenario pairs) to use instead of the
     /// legacy <see cref="TipoFrase"/>/<see cref="Escenario"/> single-pair API.
     /// Mutually exclusive with <see cref="TipoFrase"/>/<see cref="Escenario"/>.
-    /// When set for fuel invoices, auto-injection of subsidy frases (9/18, 9/19) is suppressed.
     /// </summary>
     public IReadOnlyList<FraseItem>? Frases { get; init; }
-
-    /// <summary>
-    /// Controls auto-injection of subsidy frases (TipoFrase=9, Escenarios 18 and 19)
-    /// for fuel invoices during the combustible subsidy window (2026-04-27 to 2026-07-27).
-    /// <c>null</c> (default) = auto-inject when within window. Set to <c>false</c> to disable.
-    /// Can also be disabled via the <c>DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1</c> env var.
-    /// </summary>
-    public bool? AutoFuelSubsidyFrases { get; init; }
 
     /// <summary>HTTP request timeout. Defaults to 120 seconds.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(120);

@@ -23,7 +23,6 @@ Ordenados de más usados a menos usados.
 | `tipo_frase` | `string \| null` | `null` | Sobreescritura global de `TipoFrase` (legacy). **Mutuamente exclusivo con `frases`**. Ver [frases](#configuración-de-frases-tipofrase--codigoescenario). |
 | `escenario` | `string \| null` | `null` | Sobreescritura global de `CodigoEscenario` (legacy). **Mutuamente exclusivo con `frases`**. |
 | `frases` | `Array<{tipo_frase, escenario}> \| null` | `null` | Lista de frases. Reemplaza a `tipo_frase`/`escenario`. **Mutuamente exclusivo** con ellos. Ver [frases](#configuración-de-frases-tipofrase--codigoescenario). |
-| `auto_fuel_subsidy_frases` | `boolean \| null` | `null` | Controla la auto-inyección de frases 9/18 y 9/19 en combustible durante el subsidio. `null` = usar default (`true`). Ver [subsidio combustible](#subsidio-combustible-frases-automáticas). |
 | `petroleo_rates` | `Object<string,number>` | `{}` | Mapa código PETROLEO → tarifa por unidad. Usado sólo por `fuelInvoice()` (gasolineras). |
 | `timeout` | `number` | `120000` | Timeout HTTP en **ms**. |
 | `tipo_personeria` | `string` | `"1"` | Código de `TipoPersoneria` del RTU. **Sólo aplica a RDON** (Recibo por Donación); ignóralo en los demás documentos. |
@@ -138,24 +137,29 @@ const fuel2 = await client.fuelInvoice('CF', [
 | `petroleo_amount` | `number` | — | Impuesto PETROLEO por unidad (omitir para ítems sólo-IVA) |
 | `petroleo_code` | `string` | `'1'` | `'1'`=SUPER, `'2'`=REGULAR, `'4'`=DIESEL. Si se usa sin `petroleo_amount`, el código debe estar en `petroleo_rates` o se lanza `DigifactValidationError`. |
 
-### Subsidio combustible — frases automáticas
+### Subsidio combustible — frases explícitas
 
-Durante el **periodo de subsidio de combustibles** (2026-04-27 (incl.) a 2026-07-27 (excl.)), SAT exige incluir frases especiales `TipoFrase=9, Escenario=18` y `TipoFrase=9, Escenario=19`. **El SDK las agrega automáticamente** — no se necesita cambiar ningún código existente.
+El subsidio a la gasolina y al diésel **finalizó el jueves 2 de julio de 2026 a las 24:00**, antes de lo
+previsto: el presupuesto de Q2 mil millones (Decreto 11-2026, reglamentado por el Acuerdo Gubernativo
+64-2026) se agotó por la demanda. Por eso el SDK **nunca envía** las frases `TipoFrase=9, Escenario=18` ni
+`TipoFrase=9, Escenario=19` por su cuenta — no hay fecha de corte que valga para todos.
+
+Las estaciones con inventario adquirido bajo el subsidio deben mantener el precio rebajado hasta agotar ese
+producto, sujeto a verificación. En ese caso las frases se pasan **explícitamente** con `frases` mientras
+quede ese inventario:
 
 ```js
-// Sin cambios — el SDK agrega 9/18 y 9/19 automáticamente durante el subsidio
+// Por defecto — sólo la frase base, sin frases de subsidio
 const result = await client.fuelInvoice('CF', items);
 
-// Deshabilitarlo por llamada
-await client.fuelInvoice('CF', items, { auto_fuel_subsidy_frases: false });
-
-// Deshabilitarlo globalmente
-const client = new DigifactClient({ ..., auto_fuel_subsidy_frases: false });
-
-// Variable de entorno (sin tocar código): DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES=1
-
-// Frases completamente personalizadas (deshabilita auto-inyección)
-await client.fuelInvoice('CF', items, { frases: [{ tipo_frase: '1', escenario: '1' }] });
+// Emisor con inventario subsidiado — frases pasadas explícitamente
+await client.fuelInvoice('CF', items, {
+  frases: [
+    { tipo_frase: '1', escenario: '1' },
+    { tipo_frase: '9', escenario: '18' },
+    { tipo_frase: '9', escenario: '19' },
+  ],
+});
 ```
 
 > **Nota:** `frases` y `tipo_frase`/`escenario` son **mutuamente exclusivos** — pasarlos juntos lanza un error.
@@ -186,7 +190,7 @@ configurar nada en el caso común.
 Usa `frases` cuando necesitas enviar **más de un par** TipoFrase/Escenario. Es **mutuamente exclusivo** con `tipo_frase`/`escenario`.
 
 ```js
-// Lista explícita de frases (deshabilita auto-inyección)
+// Lista explícita de frases (reemplaza a tipo_frase/escenario)
 await client.fuelInvoice('CF', items, {
   frases: [{ tipo_frase: '1', escenario: '1' }],
 });
@@ -228,7 +232,7 @@ Todos los métodos son **asíncronos**. Los de emisión devuelven `DteResult` co
 |--------|-------|-------------|
 | `invoice()` | `invoice(buyer, items, opts = {})` | Emite FACT, FCAM, FESP, FPEQ, NABN, RDON o RECI según `opts.doc_type`. |
 | `ccaInvoice()` | `ccaInvoice(buyer, items, cobros, opts = {})` | FACT con complemento CCA. |
-| `fuelInvoice()` | `fuelInvoice(buyer, items, opts = {})` | FACT con complemento combustible (IVA + PETROLEO). `opts.frases`, `opts.auto_fuel_subsidy_frases`. Auto-inyecta 9/18 y 9/19 durante el subsidio. |
+| `fuelInvoice()` | `fuelInvoice(buyer, items, opts = {})` | FACT con complemento combustible (IVA + PETROLEO). `opts.frases`. Las frases de subsidio 9/18 y 9/19 nunca se envían solas; pásalas en `opts.frases`. Ver [subsidio combustible](#subsidio-combustible--frases-explícitas). |
 | `creditNote()` | `creditNote(buyer, items, origin, reason, opts = {})` | Nota de crédito (NCRE). |
 | `debitNote()` | `debitNote(buyer, items, origin, reason, opts = {})` | Nota de débito (NDEB). |
 | `creditNoteTotal()` | `creditNoteTotal(authNumber, issueDateTime, reason = '...', reference = '')` | Nota de crédito total. Devuelve `object`. |

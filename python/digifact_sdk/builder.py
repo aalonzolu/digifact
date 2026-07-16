@@ -7,7 +7,6 @@ Key intentional API typos preserved from the SAT/Digifact spec:
 """
 from __future__ import annotations
 
-import datetime as _datetime
 from decimal import Decimal
 from typing import Any
 
@@ -28,9 +27,7 @@ def _adenda_code(doc_type: str) -> str:
     return ADENDA_CODE_ALT if doc_type in _ALT_ADENDA_TYPES else ADENDA_CODE_STD
 
 
-# ── Fuel subsidy frases (Tipo 9, Escenarios 18 / 19) ─────────────────────────
-FUEL_SUBSIDY_START = _datetime.date(2026, 4, 27)
-FUEL_SUBSIDY_END   = _datetime.date(2026, 7, 27)  # exclusive
+# ── Frases ───────────────────────────────────────────────────────────────────
 
 
 def _uniq_frases(frases: list[dict]) -> list[dict]:
@@ -58,20 +55,10 @@ def _build_additionl_info_from_frases(frases: list[dict]) -> list[dict]:
     return out
 
 
-def _within_subsidy_window(issue_dt_iso: str) -> bool:
-    try:
-        d = _datetime.date.fromisoformat(issue_dt_iso[:10])
-        return FUEL_SUBSIDY_START <= d < FUEL_SUBSIDY_END
-    except (ValueError, TypeError):
-        return False
-
-
 def resolve_fuel_frases(
     frases: list[dict] | None,
     tipo_frase: str | None,
     escenario: str | None,
-    issue_dt_iso: str,
-    auto_enabled: bool = True,
 ) -> list[dict]:
     """Return the final deduplicated frases list for a fuel invoice.
 
@@ -85,9 +72,6 @@ def resolve_fuel_frases(
     result: list[dict] = []
     if tipo_frase is not None and escenario is not None:
         result.append({"tipo_frase": tipo_frase, "escenario": escenario})
-    if auto_enabled and _within_subsidy_window(issue_dt_iso):
-        result.append({"tipo_frase": "9", "escenario": "18"})
-        result.append({"tipo_frase": "9", "escenario": "19"})
     return _uniq_frases(result)
 
 
@@ -1183,7 +1167,6 @@ def build_fact_combustible(
     tipo_frase: str | None = None,
     escenario: str | None = None,
     frases: list[dict] | None = None,
-    auto_fuel_subsidy_frases: bool = True,
     seller_email: str | None = None,
 ) -> dict:
     """Build a FACT payload for combustible (fuel) invoices.
@@ -1218,9 +1201,9 @@ def build_fact_combustible(
     tf = tipo_frase if tipo_frase is not None else def_tf
     es = escenario if escenario is not None else def_es
 
-    resolved_frases = resolve_fuel_frases(frases, tf, es, issue_dt, auto_fuel_subsidy_frases)
+    resolved_frases = resolve_fuel_frases(frases, tf, es)
 
-    # All frases (base + any subsidy) go into Seller.AdditionlInfo as repeated pairs —
+    # All frases go into Seller.AdditionlInfo as repeated pairs —
     # that is the field the API reads to generate <dte:Frases> in the certified XML.
     seller = _build_seller(
         taxid,

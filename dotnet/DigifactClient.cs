@@ -24,7 +24,6 @@ public sealed class DigifactClient : IDisposable
     private readonly string? _tipoFrase;
     private readonly string? _escenario;
     private readonly IReadOnlyList<FraseItem>? _frases;
-    private readonly bool? _autoFuelSubsidyFrases;
     private readonly string _branchCode;
     private readonly string _branchName;
     private readonly IReadOnlyDictionary<string, decimal> _petroleoRates;
@@ -77,7 +76,6 @@ public sealed class DigifactClient : IDisposable
             throw new DigifactValidationException(
                 "Frases and TipoFrase/Escenario are mutually exclusive; use one or the other.");
         _frases = options.Frases;
-        _autoFuelSubsidyFrases = options.AutoFuelSubsidyFrases;
         _branchCode = string.IsNullOrEmpty(options.BranchCode) ? "1" : options.BranchCode;
         _branchName = string.IsNullOrEmpty(options.BranchName) ? "ESTABLECIMIENTO PRINCIPAL" : options.BranchName;
         _petroleoRates = options.PetroleoRates
@@ -438,12 +436,21 @@ public sealed class DigifactClient : IDisposable
     /// (IVA + PETROLEO). Items with <c>PetroleoAmount == 0</c> are regular IVA-only items.
     /// Common <c>PetroleoCode</c> values: "1" = SUPER, "2" = REGULAR, "4" = DIESEL.
     /// </para>
+    /// <para>
+    /// <paramref name="frases"/> is an explicit list of TipoFrase/Escenario pairs and is
+    /// mutually exclusive with <paramref name="tipoFrase"/>/<paramref name="escenario"/>.
+    /// The SAT fuel subsidy has ended, so nothing subsidy-related is ever sent on its own.
+    /// If you are still dispatching inventory bought under the subsidy scheme, pass the
+    /// frases yourself:
+    /// <code>
+    /// frases: new[] { new FraseItem("1", "1"), new FraseItem("9", "18"), new FraseItem("9", "19") }
+    /// </code>
+    /// </para>
     /// </summary>
     public async Task<DteResult> FuelInvoiceAsync(
         BuyerDetails buyer, IReadOnlyList<FuelLineItem> items,
         string? tipoFrase = null, string? escenario = null,
         IReadOnlyList<FraseItem>? frases = null,
-        bool? autoFuelSubsidyFrases = null,
         CancellationToken ct = default)
     {
         if (frases is not null && (tipoFrase is not null || escenario is not null))
@@ -457,20 +464,12 @@ public sealed class DigifactClient : IDisposable
         else if (_frases is not null) { effFrases = _frases; effTf = null; effEs = null; }
         else { effFrases = null; (effTf, effEs) = ResolveFrase("FACT", tipoFrase, escenario); }
 
-        // Resolve auto_enabled
-        bool autoEnabled;
-        if (autoFuelSubsidyFrases.HasValue) autoEnabled = autoFuelSubsidyFrases.Value;
-        else if (_autoFuelSubsidyFrases.HasValue) autoEnabled = _autoFuelSubsidyFrases.Value;
-        else autoEnabled = true;
-        if (Environment.GetEnvironmentVariable("DIGIFACT_DISABLE_AUTO_FUEL_SUBSIDY_FRASES") == "1")
-            autoEnabled = false;
-
         var (sellerName, sellerAddress) = await GetSellerInfoAsync(ct);
         var buyerNode = await ResolveBuyerAsync(buyer, ct);
         var resolved = ApplyPetroleoRates(items);
         var payload = DteBuilder.BuildFactCombustible(_taxid, sellerName, sellerAddress, buyerNode, resolved,
             _afiliacionIva, tipoFrase: effTf, escenario: effEs,
-            frases: effFrases, autoFuelSubsidyFrases: autoEnabled);
+            frases: effFrases);
         var data = await CertifyAsync(payload, ct);
         return DteResult.FromJson(data);
     }
