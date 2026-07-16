@@ -40,6 +40,9 @@ _BASE_URLS = {
     "production": "https://nucgt.digifact.com/gt.com.apinuc/api",
 }
 
+# Digits in a Guatemalan CUI (DPI); a NIT never reaches this length.
+CUI_LENGTH = 13
+
 
 @dataclass
 class DteResult:
@@ -169,6 +172,7 @@ class DigifactClient:
         self._seller_name: str = seller_name
         self._seller_address: str = seller_address
         self._nit_cache: dict[str, dict] = {}
+        self._cui_cache: dict[str, dict] = {}
         self.petroleo_rates: dict[str, float] = dict(petroleo_rates) if petroleo_rates else {}
 
         self._session = session or requests.Session()
@@ -230,17 +234,25 @@ class DigifactClient:
     def _resolve_buyer(self, buyer: str | dict) -> dict:
         """Resolve a buyer spec to a buyer dict.
 
-        - "CF"           → Consumidor Final
-        - "77454820"     → NIT lookup → buyer dict
+        - "CF"              → Consumidor Final
+        - "77454820"        → NIT lookup → buyer dict
+        - "1234567890123"   → CUI lookup → buyer dict (13 digits)
+        - {"taxid": ..., "type": "CUI"}              → CUI buyer, name resolved via lookup
         - {"taxid": ..., "type": "CUI", "name": ...} → CUI buyer
         - {"taxid": ..., "name": ..., ...}            → explicit buyer dict
         """
         if isinstance(buyer, str):
             if buyer.upper() == "CF":
                 return _build_buyer_cf()
-            # Numeric string → NIT
             digits = re.sub(r"\D", "", buyer)
             if digits:
+                # A CUI is always 13 digits; a NIT never reaches that length.
+                if len(digits) == CUI_LENGTH:
+                    info = self.lookup_cui(digits)
+                    return _build_buyer_cui(
+                        taxid=digits,
+                        name=info.get("name") or digits,
+                    )
                 info = self.lookup_nit(digits)
                 return _build_buyer_nit(
                     nit=digits,
@@ -256,10 +268,12 @@ class DigifactClient:
         if isinstance(buyer, dict):
             buyer_type = buyer.get("type", "").upper()
             if buyer_type == "CUI":
-                return _build_buyer_cui(
-                    taxid=str(buyer["taxid"]),
-                    name=buyer["name"],
-                )
+                cui = str(buyer["taxid"])
+                name = buyer.get("name") or ""
+                if not name:
+                    digits = re.sub(r"\D", "", cui)
+                    name = self.lookup_cui(digits).get("name") or digits
+                return _build_buyer_cui(taxid=cui, name=name)
             # Explicit dict — build NIT buyer
             return _build_buyer_nit(
                 nit=str(buyer["taxid"]),
@@ -805,6 +819,42 @@ class DigifactClient:
         self._nit_cache[digits] = normalized
         return normalized
 
+    def lookup_cui(self, cui: str) -> dict:
+        """Look up a CUI (DPI) via SHARED_GETINFOCUI.
+
+        Returns a normalized dict with keys: cui, name, status.
+        Result is cached per CUI.
+        """
+        digits = re.sub(r"\D", "", cui)
+        if digits in self._cui_cache:
+            return self._cui_cache[digits]
+
+        resp = self._session.get(
+            f"{self.base_url}/Shared",
+            params={
+                "COUNTRY": "GT",
+                "TAXID": self.padded_taxid,
+                "DATA1": "SHARED_GETINFOCUI",
+                "DATA2": f"CUI|{digits}",
+                "USERNAME": self.username,
+            },
+            headers={"Authorization": self._login()},
+            timeout=self.timeout,
+        )
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError as exc:
+            raise DigifactApiError(
+                f"CUI lookup HTTP error: {exc}", raw=_try_json(resp)
+            ) from exc
+
+        data = resp.json()
+        normalized = _parse_cui_response(digits, data)
+        if not normalized.get("name"):
+            raise DigifactNitNotFoundError(f"CUI {cui!r} not found or returned empty name")
+        self._cui_cache[digits] = normalized
+        return normalized
+
     def get_dte_info(self, auth_number: str) -> dict:
         """Get DTE info via SHARED_GETDTEINFO."""
         resp = self._session.get(
@@ -934,3 +984,47 @@ def _parse_nit_response(nit: str, data: Any) -> dict:
         return _parse_nit_response(nit, data[0])
     return {"nit": nit, "name": "", "address": "CIUDAD", "city": "01010",
             "district": "GUATEMALA", "state": "GUATEMALA"}
+
+
+def _normalize_cui_name(name: str) -> str:
+    """Tidy spacing only — SAT's "APELLIDOS, NOMBRES" string is kept verbatim otherwise.
+
+    The comma is deliberately preserved: it is how SAT delimits surnames from given
+    names, and commas already reach the DTE unharmed via NIT names such as
+    "A3 CLOUD TECHNOLOGIES, SOCIEDAD DE EMPRENDIMIENTO". Reordering is not attempted
+    either — at least one real production record arrives with its two sides
+    swapped at the source, so no rule could straighten every case.
+    """
+    return re.sub(r"\s+", " ", re.sub(r"\s*,\s*", ", ", name)).strip()
+
+
+def _parse_cui_response(cui: str, data: Any) -> dict:
+    """Normalize CUI lookup response to a standard dict.
+
+    The API returns: {"REQUEST_DATA": [...], "RESPONSE": [{"PAIS": "GT", "CUI": ...,
+    "NOMBRE": "NOMBRES , APELLIDOS", "STATUS": "A"}]}
+    """
+    empty = {"cui": cui, "name": "", "status": ""}
+
+    # Unwrap envelope: {"REQUEST_DATA": [...], "RESPONSE": [...]}
+    if isinstance(data, dict) and "RESPONSE" in data:
+        response_list = data["RESPONSE"]
+        if isinstance(response_list, list) and response_list:
+            return _parse_cui_response(cui, response_list[0])
+        return empty
+
+    if isinstance(data, dict):
+        # Direct row dict — NOMBRE arrives as "NOMBRES , APELLIDOS" (RENAP format)
+        name = (
+            data.get("NOMBRE") or data.get("nombre")
+            or data.get("Name") or data.get("name") or ""
+        )
+        status = data.get("STATUS") or data.get("status") or ""
+        return {
+            "cui": cui,
+            "name": _normalize_cui_name(name),
+            "status": status.strip(),
+        }
+    if isinstance(data, list) and data:
+        return _parse_cui_response(cui, data[0])
+    return empty

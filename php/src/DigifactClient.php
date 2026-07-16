@@ -27,6 +27,7 @@ class DigifactClient
     private string $branchName;
     private int $timeout;
     private array $nitCache = [];
+    private array $cuiCache = [];
     /** @var array<string,float> PETROLEO code → per-unit amount */
     private array $petroleoRates = [];
 
@@ -34,6 +35,9 @@ class DigifactClient
         'test'       => 'https://testnucgt.digifact.com/api',
         'production' => 'https://nucgt.digifact.com/gt.com.apinuc/api',
     ];
+
+    /** Digits in a Guatemalan CUI (DPI); a NIT never reaches this length. */
+    private const CUI_LENGTH = 13;
 
     /**
      * @param array $config Configuration keys (all except taxid/username/password are optional):
@@ -287,6 +291,11 @@ class DigifactClient
             }
             $digits = preg_replace('/\D/', '', $buyer);
             if ($digits !== '') {
+                // A CUI is always 13 digits; a NIT never reaches that length.
+                if (strlen($digits) === self::CUI_LENGTH) {
+                    $info = $this->lookupCui($digits);
+                    return DteBuilder::buyerCui($digits, $info['name'] ?: $digits);
+                }
                 $info = $this->lookupNit($digits);
                 return DteBuilder::buyerNit(
                     $digits,
@@ -302,7 +311,13 @@ class DigifactClient
 
         $type = strtoupper($buyer['type'] ?? '');
         if ($type === 'CUI') {
-            return DteBuilder::buyerCui((string)$buyer['taxid'], $buyer['name']);
+            $cui  = (string)$buyer['taxid'];
+            $name = $buyer['name'] ?? '';
+            if ($name === '') {
+                $digits = preg_replace('/\D/', '', $cui);
+                $name = $this->lookupCui($digits)['name'] ?: $digits;
+            }
+            return DteBuilder::buyerCui($cui, $name);
         }
         return DteBuilder::buyerNit(
             (string)$buyer['taxid'],
@@ -780,6 +795,75 @@ class DigifactClient
             'district' => trim($data['MUNICIPIO'] ?? $data['Municipio'] ?? $data['municipio'] ?? $data['district'] ?? 'GUATEMALA'),
             'state'    => trim($data['DEPARTAMENTO'] ?? $data['Departamento'] ?? $data['departamento'] ?? $data['state'] ?? 'GUATEMALA'),
         ];
+    }
+
+    /**
+     * Look up a CUI (DPI) via SHARED_GETINFOCUI.
+     *
+     * @return array{cui: string, name: string, status: string}
+     */
+    public function lookupCui(string $cui): array
+    {
+        $digits = preg_replace('/\D/', '', $cui);
+        if (isset($this->cuiCache[$digits])) {
+            return $this->cuiCache[$digits];
+        }
+
+        $data = $this->get('/Shared', [
+            'COUNTRY'  => 'GT',
+            'TAXID'    => $this->paddedTaxid,
+            'DATA1'    => 'SHARED_GETINFOCUI',
+            'DATA2'    => "CUI|$digits",
+            'USERNAME' => $this->username,
+        ]);
+
+        $normalized = $this->parseCuiResponse($digits, $data);
+        if (empty($normalized['name'])) {
+            throw new DigifactNitNotFoundException("CUI '$cui' not found or returned empty name");
+        }
+        $this->cuiCache[$digits] = $normalized;
+        return $normalized;
+    }
+
+    private function parseCuiResponse(string $cui, mixed $data): array
+    {
+        if (!is_array($data)) {
+            return ['cui' => $cui, 'name' => '', 'status' => ''];
+        }
+        // Unwrap envelope: {"REQUEST_DATA": [...], "RESPONSE": [...]}
+        if (isset($data['RESPONSE'])) {
+            $responseList = $data['RESPONSE'];
+            if (is_array($responseList) && count($responseList) > 0) {
+                return $this->parseCuiResponse($cui, $responseList[0]);
+            }
+            return ['cui' => $cui, 'name' => '', 'status' => ''];
+        }
+        // List → recurse into first element
+        if (array_is_list($data) && count($data) > 0) {
+            return $this->parseCuiResponse($cui, $data[0]);
+        }
+        // Row dict — NOMBRE arrives as "NOMBRES , APELLIDOS" (RENAP format)
+        $rawName = (string)($data['NOMBRE'] ?? $data['nombre'] ?? $data['Name'] ?? $data['name'] ?? '');
+        return [
+            'cui'    => $cui,
+            'name'   => self::normalizeCuiName($rawName),
+            'status' => trim((string)($data['STATUS'] ?? $data['status'] ?? '')),
+        ];
+    }
+
+    /**
+     * Tidy spacing only — SAT's "APELLIDOS, NOMBRES" string is kept verbatim otherwise.
+     *
+     * The comma is deliberately preserved: it is how SAT delimits surnames from given
+     * names, and commas already reach the DTE unharmed via NIT names such as
+     * "A3 CLOUD TECHNOLOGIES, SOCIEDAD DE EMPRENDIMIENTO". Reordering is not attempted
+     * either — at least one real production record arrives with its two sides
+     * swapped at the source, so no rule could straighten every case.
+     */
+    private static function normalizeCuiName(string $name): string
+    {
+        $name = preg_replace('/\s*,\s*/', ', ', $name);
+        return trim(preg_replace('/\s+/', ' ', $name));
     }
 
     /**

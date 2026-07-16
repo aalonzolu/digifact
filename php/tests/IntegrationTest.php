@@ -136,6 +136,71 @@ class IntegrationTest extends TestCase
         $this->assertSame('test@example.com', $buyer['Contact']['EmailList']['Email'][0]);
     }
 
+    // ── Unit: CUI response parsing ────────────────────────────────────────────
+
+    /**
+     * A SHARED_GETINFOCUI payload shaped exactly like the real one, with the CUI and
+     * the name replaced by placeholders — SAT returns real personal data, which must
+     * not be committed. The " ," spacing quirk is reproduced on purpose.
+     */
+    private const CUI_RESPONSE = [
+        'REQUEST_DATA' => [['Respuesta' => 1, 'Codigo' => 1, 'Procesador' => 'GT-PSQL-Backend']],
+        'RESPONSE'     => [[
+            'PAIS'   => 'GT',
+            'CUI'    => '1234567890123',
+            'NOMBRE' => 'PEREZ LOPEZ , JUAN CARLOS',
+            'STATUS' => 'A',
+        ]],
+    ];
+
+    private function invokeParseCuiResponse(string $cui, mixed $data): array
+    {
+        $client = new DigifactClient(['taxid' => '12345678', 'username' => 'U', 'password' => 'P']);
+        $m = new \ReflectionMethod($client, 'parseCuiResponse');
+        $m->setAccessible(true);
+        return $m->invoke($client, $cui, $data);
+    }
+
+    public function testCuiParseTidiesSpaceBeforeComma(): void
+    {
+        // SAT's comma is kept; only the stray space before it goes.
+        $info = $this->invokeParseCuiResponse('1234567890123', self::CUI_RESPONSE);
+        $this->assertSame('PEREZ LOPEZ, JUAN CARLOS', $info['name']);
+        $this->assertSame('1234567890123', $info['cui']);
+        $this->assertSame('A', $info['status']);
+    }
+
+    public function testCuiParseUnwrapsEveryEnvelopeShape(): void
+    {
+        $expected = ['cui' => '1234567890123', 'name' => 'PEREZ LOPEZ, JUAN CARLOS', 'status' => 'A'];
+        // Full envelope, bare list, and a single row must all normalize the same.
+        $this->assertSame($expected, $this->invokeParseCuiResponse('1234567890123', self::CUI_RESPONSE));
+        $this->assertSame($expected, $this->invokeParseCuiResponse('1234567890123', self::CUI_RESPONSE['RESPONSE']));
+        $this->assertSame($expected, $this->invokeParseCuiResponse('1234567890123', self::CUI_RESPONSE['RESPONSE'][0]));
+    }
+
+    public function testCuiParseEmptyResponseYieldsEmptyName(): void
+    {
+        // An empty name is what makes lookupCui() raise DigifactNitNotFoundException.
+        $this->assertSame('', $this->invokeParseCuiResponse('1234567890123', ['RESPONSE' => []])['name']);
+        $this->assertSame('', $this->invokeParseCuiResponse('1234567890123', null)['name']);
+        $this->assertSame('', $this->invokeParseCuiResponse('1234567890123', [])['name']);
+    }
+
+    public function testCuiParseToleratesNameVariants(): void
+    {
+        $cases = [
+            'PEREZ LOPEZ, JUAN CARLOS'     => 'PEREZ LOPEZ, JUAN CARLOS', // already tidy
+            'JUAN,PEREZ'                   => 'JUAN, PEREZ',              // no space after comma
+            'ANA  MARIA ,  DE LEON GARCIA' => 'ANA MARIA, DE LEON GARCIA',
+            'SIN COMA AQUI'                => 'SIN COMA AQUI',            // no comma at all
+        ];
+        foreach ($cases as $raw => $expected) {
+            $info = $this->invokeParseCuiResponse('1234567890123', ['NOMBRE' => $raw, 'STATUS' => 'A']);
+            $this->assertSame($expected, $info['name'], "raw: $raw");
+        }
+    }
+
     // ── Unit: petroleo_rates auto-fill / validation ───────────────────────────
 
     private function invokeApplyPetroleoRates(DigifactClient $client, array $items): array
@@ -339,6 +404,32 @@ class IntegrationTest extends TestCase
         echo "\n  NIT name: " . $info['name'];
     }
 
+    /**
+     * A CUI identifies a real person and SAT returns their name, so no DPI is
+     * hardcoded here. Set DIGIFACT_TEST_CUI to exercise the CUI paths.
+     */
+    private function requireTestCui(): string
+    {
+        $cui = getenv('DIGIFACT_TEST_CUI') ?: '';
+        if (!$cui) {
+            $this->markTestSkipped('Set DIGIFACT_TEST_CUI to run CUI integration tests');
+        }
+        return $cui;
+    }
+
+    public function testLookupCui(): void
+    {
+        $client = $this->requireClient();
+        $cui = $this->requireTestCui();
+        $info = $client->lookupCui($cui);
+        $this->assertNotEmpty($info['name']);
+        // SAT's comma stays; only the stray " ," spacing is tidied away.
+        $this->assertStringNotContainsString(' ,', $info['name']);
+        $this->assertSame(preg_replace('/\D/', '', $cui), $info['cui']);
+        // The name is deliberately not echoed — it is real personal data.
+        echo "\n  CUI status: {$info['status']}";
+    }
+
     public function testFactCf(): void
     {
         $client = $this->requireClient();
@@ -369,6 +460,28 @@ class IntegrationTest extends TestCase
         );
         $this->assertNotEmpty($result->authNumber);
         echo "\n  FACT CUI auth: " . $result->authNumber;
+    }
+
+    public function testFactCuiWithoutNameResolvesIt(): void
+    {
+        $client = $this->requireClient();
+        $result = $client->invoice(
+            ['taxid' => $this->requireTestCui(), 'type' => 'CUI'],
+            [['description' => 'Producto', 'qty' => 1, 'price' => 75.00, 'type' => 'Bien']]
+        );
+        $this->assertNotEmpty($result->authNumber);
+        echo "\n  FACT CUI (nombre auto) auth: " . $result->authNumber;
+    }
+
+    public function testFactCuiAsPlainString(): void
+    {
+        $client = $this->requireClient();
+        // 13 digits → resolved as a CUI, not a NIT.
+        $result = $client->invoice($this->requireTestCui(), [
+            ['description' => 'Producto', 'qty' => 1, 'price' => 25.00, 'type' => 'Bien'],
+        ]);
+        $this->assertNotEmpty($result->authNumber);
+        echo "\n  FACT CUI (string) auth: " . $result->authNumber;
     }
 
     public function testFcam(): void

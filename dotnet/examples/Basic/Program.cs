@@ -85,6 +85,34 @@ catch (DigifactException ex)
     Console.Error.WriteLine($"  ERROR: {ex.Message}");
 }
 
+// ── CUI Lookup ────────────────────────────────────────────────────────────────
+Console.WriteLine("\nLooking up CUI 1234567890123...");
+try
+{
+    var cuiInfo = await client.LookupCuiAsync("1234567890123");
+    Console.WriteLine($"  name   : {cuiInfo.Name}");
+    Console.WriteLine($"  status : {cuiInfo.Status}");
+}
+catch (DigifactException ex)
+{
+    Console.Error.WriteLine($"  ERROR: {ex.Message}");
+}
+
+// ── FACT to a CUI (DPI) buyer — name resolved automatically ───────────────────
+Console.WriteLine("\nEmitting FACT to a CUI buyer...");
+try
+{
+    var cuiResult = await client.InvoiceAsync(
+        BuyerDetails.FromCui("1234567890123"),
+        new[] { new LineItem { Description = "Producto", Qty = 1, Price = 75.00m, Type = "Bien" } }
+    );
+    Console.WriteLine($"  auth: {cuiResult.AuthNumber}");
+}
+catch (DigifactException ex)
+{
+    Console.Error.WriteLine($"  ERROR: {ex.Message}");
+}
+
 // ── FACT Combustible ──────────────────────────────────────────────────────────
 // For gas stations, set PetroleoRates at init so you don't repeat PetroleoAmount on each item.
 Console.WriteLine("\nEmitting FACT Combustible...");

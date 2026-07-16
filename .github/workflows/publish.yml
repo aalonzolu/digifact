@@ -40,7 +40,7 @@ jobs:
       - name: PHP unit tests
         run: |
           cd php && composer install --no-interaction --prefer-dist
-          ./vendor/bin/phpunit tests/ --filter "testPad|testCalc|testFmt|testDteResult"
+          ./vendor/bin/phpunit tests/ --filter "testPad|testCalc|testFmt|testDteResult|testCuiParse"
 
       - name: JavaScript unit tests
         working-directory: javascript

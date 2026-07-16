@@ -51,8 +51,19 @@ const result2 = await client.invoice('12345678', [
   { description: 'Soporte', qty: 1, price: 500.00 },
 ]);
 
-// FACT a receptor con CUI
+// FACT a receptor con CUI (DPI) — el nombre se consulta en SAT automáticamente
 const result3 = await client.invoice(
+  { taxid: '1234567890123', type: 'CUI' },
+  [{ description: 'Producto', qty: 2, price: 50.00 }]
+);
+
+// Equivalente: un string de 13 dígitos se resuelve como CUI
+const result3Cui = await client.invoice('1234567890123', [
+  { description: 'Producto', qty: 2, price: 50.00 },
+]);
+
+// Con nombre explícito no se consulta SAT
+const result3Named = await client.invoice(
   { taxid: '3730617490101', type: 'CUI', name: 'Juan Pérez' },
   [{ description: 'Producto', qty: 2, price: 50.00 }]
 );
@@ -99,6 +110,10 @@ const cancel = await client.cancel('XXXXXXXX-...', 'CF', '2026-03-18 21:40:14', 
 // Consulta de NIT
 const info = await client.lookupNit('12345678');
 console.log(info.name);
+
+// Consulta de CUI (DPI) — SAT devuelve el nombre como "APELLIDOS, NOMBRES"
+const cuiInfo = await client.lookupCui('1234567890123');
+console.log(cuiInfo.name);   // "PEREZ LOPEZ, JUAN CARLOS"
 
 // Obtener DTE
 const doc = await client.getDte('XXXXXXXX-...');
@@ -238,12 +253,13 @@ Todos los métodos son **asíncronos**. Los de emisión devuelven `DteResult` co
 | `creditNoteTotal()` | `creditNoteTotal(authNumber, issueDateTime, reason = '...', reference = '')` | Nota de crédito total. Devuelve `object`. |
 | `cancel()` | `cancel(authNumber, receiverId, issueDateTime, reason = 'Anulación')` | Anula un DTE. Devuelve `object`. |
 | `lookupNit()` | `lookupNit(nit)` | Consulta SAT. Devuelve `{ nit, name, address, city, district, state }`. |
+| `lookupCui()` | `lookupCui(cui)` | Consulta SAT por CUI (DPI). Devuelve `{ cui, name, status }`. El nombre viene como `"APELLIDOS, NOMBRES"`, tal como lo registra SAT. |
 | `getDte()` | `getDte(authNumber, format = 'JSON')` | Recupera el DTE (`'JSON'`, `'XML'`, `'HTML'`, `'PDF'`). |
 | `getDteInfo()` | `getDteInfo(authNumber)` | Metadatos del DTE. |
 
 ### Parámetros comunes
 
-- **`buyer`**: `'CF'` (consumidor final), un NIT string (`'12345678'` — se consulta el nombre), un objeto CUI (`{ type: 'CUI', taxid, name }`) o un objeto NIT explícito (`{ taxid, name, address, city, district, state, country, email }`).
+- **`buyer`**: `'CF'` (consumidor final), un NIT string (`'12345678'` — se consulta el nombre), un CUI string de 13 dígitos (`'1234567890123'` — se consulta el nombre), un objeto CUI (`{ type: 'CUI', taxid }` — se consulta el nombre; con `name` explícito no se consulta) o un objeto NIT explícito (`{ taxid, name, address, city, district, state, country, email }`).
 - **`items`**: array de objetos con `description` (req), `price` (req), `qty` (1), `type` (`'Servicio'`/`'Bien'`), `unit_of_measure` (`'UNI'`), `discount` (opcional).
 - **`opts`**: `doc_type`, `payment_terms` (req. para FCAM), `amount_str`, `observaciones`, `tipo_personeria`, `tipo_frase`, `escenario`.
 - **`origin`** (NCRE/NDEB): `{ auth_number, date: 'YYYY-MM-DD', series, number }`.

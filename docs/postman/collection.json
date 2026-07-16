@@ -1184,6 +1184,69 @@
           ]
         },
         {
+          "name": "GET INFOCUI",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/Shared?COUNTRY={{country}}&TAXID={{taxid_padded}}&DATA1=SHARED_GETINFOCUI&DATA2=CUI|{{lookup_cui}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "Shared"
+              ],
+              "query": [
+                {
+                  "key": "COUNTRY",
+                  "value": "{{country}}",
+                  "disabled": false
+                },
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "DATA1",
+                  "value": "SHARED_GETINFOCUI",
+                  "disabled": false
+                },
+                {
+                  "key": "DATA2",
+                  "value": "CUI|{{lookup_cui}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Consulta el nombre del titular por CUI (DPI). NOMBRE llega como \"NOMBRES , APELLIDOS\"."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {}; try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "pm.test('Respuesta con REQUEST_DATA/RESPONSE o error legible', function () { pm.expect(body.REQUEST_DATA || body.RESPONSE || body.message || body.Message || body.description || body.Description).to.exist; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "GET DOCUMENT - JSON",
           "request": {
             "method": "GET",
@@ -1494,6 +1557,10 @@
     {
       "key": "lookup_nit",
       "value": "12345678"
+    },
+    {
+      "key": "lookup_cui",
+      "value": "1234567890123"
     },
     {
       "key": "origin_authnumber_ndeb",

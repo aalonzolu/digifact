@@ -86,7 +86,7 @@ jobs:
 
       - name: Unit tests
         working-directory: php
-        run: ./vendor/bin/phpunit tests/ --filter "testPad|testCalc|testFmt|testDteResult"
+        run: ./vendor/bin/phpunit tests/ --filter "testPad|testCalc|testFmt|testDteResult|testCuiParse"
 
   php-integration:
     name: PHP — integration tests
