@@ -37,6 +37,22 @@ const BASE_URLS = {
   production: 'https://nucgt.digifact.com/gt.com.apinuc/api',
 };
 
+/** Digits in a Guatemalan CUI (DPI); a NIT never reaches this length. */
+const CUI_LENGTH = 13;
+
+/**
+ * Tidy spacing only — SAT's "APELLIDOS, NOMBRES" string is kept verbatim otherwise.
+ *
+ * The comma is deliberately preserved: it is how SAT delimits surnames from given names,
+ * and commas already reach the DTE unharmed via NIT names such as "A3 CLOUD TECHNOLOGIES,
+ * SOCIEDAD DE EMPRENDIMIENTO". Reordering is not attempted either — at least one
+ * real production record arrives with its two sides swapped at the source, so no
+ * rule could straighten every case.
+ */
+function normalizeCuiName(name) {
+  return name.replace(/\s*,\s*/g, ', ').replace(/\s+/g, ' ').trim();
+}
+
 // ── DteResult ─────────────────────────────────────────────────────────────────
 
 export class DteResult {
@@ -167,6 +183,7 @@ export class DigifactClient {
     this._sellerName = sellerName;
     this._sellerAddress = sellerAddress;
     this._nitCache = new Map();
+    this._cuiCache = new Map();
 
     const base = BASE_URLS[environment];
     if (!base) throw new Error(`environment must be 'test' or 'production', got '${environment}'`);
@@ -286,6 +303,11 @@ export class DigifactClient {
       if (buyer.toUpperCase() === 'CF') return buyerCf();
       const digits = buyer.replace(/\D/g, '');
       if (digits) {
+        // A CUI is always 13 digits; a NIT never reaches that length.
+        if (digits.length === CUI_LENGTH) {
+          const info = await this.lookupCui(digits);
+          return buyerCui(digits, info.name || digits);
+        }
         const info = await this.lookupNit(digits);
         return buyerNit(digits, info.name || digits, info.address || 'CIUDAD',
           info.city || '01010', info.district || 'GUATEMALA', info.state || 'GUATEMALA');
@@ -294,7 +316,15 @@ export class DigifactClient {
     }
     if (buyer !== null && typeof buyer === 'object') {
       const type = (buyer.type || '').toUpperCase();
-      if (type === 'CUI') return buyerCui(String(buyer.taxid), buyer.name);
+      if (type === 'CUI') {
+        const cui = String(buyer.taxid);
+        let name = buyer.name || '';
+        if (!name) {
+          const digits = cui.replace(/\D/g, '');
+          name = (await this.lookupCui(digits)).name || digits;
+        }
+        return buyerCui(cui, name);
+      }
       return buyerNit(
         String(buyer.taxid), buyer.name,
         buyer.address || 'CIUDAD', buyer.city || '01010',
@@ -642,6 +672,48 @@ export class DigifactClient {
       city: '01010',
       district: (data.MUNICIPIO ?? data.Municipio ?? data.municipio ?? data.district ?? 'GUATEMALA').toString().trim(),
       state: (data.DEPARTAMENTO ?? data.Departamento ?? data.departamento ?? data.state ?? 'GUATEMALA').toString().trim(),
+    };
+  }
+
+  /**
+   * Look up a CUI (DPI) via SHARED_GETINFOCUI.
+   * @param {string} cui
+   * @returns {Promise<{cui:string, name:string, status:string}>}
+   */
+  async lookupCui(cui) {
+    const digits = cui.replace(/\D/g, '');
+    if (this._cuiCache.has(digits)) return this._cuiCache.get(digits);
+
+    const data = await this._get('/Shared', {
+      COUNTRY: 'GT',
+      TAXID: this.paddedTaxid,
+      DATA1: 'SHARED_GETINFOCUI',
+      DATA2: `CUI|${digits}`,
+      USERNAME: this.username,
+    });
+
+    const normalized = this._parseCuiResponse(digits, data);
+    if (!normalized.name) throw new DigifactNitNotFoundError(`CUI '${cui}' not found or returned empty name`);
+    this._cuiCache.set(digits, normalized);
+    return normalized;
+  }
+
+  _parseCuiResponse(cui, data) {
+    const empty = { cui, name: '', status: '' };
+    if (!data || typeof data !== 'object') return empty;
+    // Unwrap envelope: {"REQUEST_DATA": [...], "RESPONSE": [...]}
+    if ('RESPONSE' in data) {
+      const list = data.RESPONSE;
+      if (Array.isArray(list) && list.length > 0) return this._parseCuiResponse(cui, list[0]);
+      return empty;
+    }
+    if (Array.isArray(data) && data.length > 0) return this._parseCuiResponse(cui, data[0]);
+    // Row dict — NOMBRE arrives as "NOMBRES , APELLIDOS" (RENAP format)
+    const rawName = data.NOMBRE ?? data.nombre ?? data.Name ?? data.name ?? '';
+    return {
+      cui,
+      name: normalizeCuiName(String(rawName)),
+      status: (data.STATUS ?? data.status ?? '').toString().trim(),
     };
   }
 

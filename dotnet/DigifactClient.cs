@@ -30,6 +30,7 @@ public sealed class DigifactClient : IDisposable
     private readonly HttpClient _http;
     private readonly bool _ownsHttpClient;
     private readonly ConcurrentDictionary<string, NitInfo> _nitCache = new();
+    private readonly ConcurrentDictionary<string, CuiInfo> _cuiCache = new();
 
     private static readonly Dictionary<string, string> BaseUrls = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -212,7 +213,17 @@ public sealed class DigifactClient : IDisposable
             return DteBuilder.BuyerCf();
 
         if (buyer.IsCui)
-            return DteBuilder.BuyerCui(buyer.Nit!, buyer.Name!);
+        {
+            if (!buyer.NeedsLookup)
+                return DteBuilder.BuyerCui(buyer.Nit!, buyer.Name!);
+
+            // CUI auto-lookup
+            var cuiDigits = TaxHelper.StripTaxid(buyer.Nit!);
+            var cuiInfo = await LookupCuiAsync(cuiDigits, ct);
+            return DteBuilder.BuyerCui(
+                buyer.Nit!,
+                !string.IsNullOrEmpty(cuiInfo.Name) ? cuiInfo.Name : cuiDigits);
+        }
 
         // NIT with explicit details
         if (!buyer.NeedsLookup)
@@ -663,6 +674,77 @@ public sealed class DigifactClient : IDisposable
             }
         return fallback;
     }
+
+    /// <summary>Look up a CUI (DPI) via SAT's SHARED_GETINFOCUI service.</summary>
+    public async Task<CuiInfo> LookupCuiAsync(string cui, CancellationToken ct = default)
+    {
+        var digits = TaxHelper.StripTaxid(cui);
+        if (_cuiCache.TryGetValue(digits, out var cached))
+            return cached;
+
+        var data = await GetAsync("/Shared", new Dictionary<string, string>
+        {
+            ["COUNTRY"]  = "GT",
+            ["TAXID"]    = _paddedTaxid,
+            ["DATA1"]    = "SHARED_GETINFOCUI",
+            ["DATA2"]    = $"CUI|{digits}",
+            ["USERNAME"] = _username,
+        }, ct);
+
+        var info = ParseCuiResponse(digits, data);
+        if (string.IsNullOrEmpty(info.Name))
+            throw new DigifactNitNotFoundException($"CUI '{cui}' not found or returned empty name.");
+
+        _cuiCache[digits] = info;
+        return info;
+    }
+
+    private static CuiInfo ParseCuiResponse(string cui, JsonElement data)
+    {
+        var empty = new CuiInfo(cui, "", "");
+
+        if (data.ValueKind == JsonValueKind.Null || data.ValueKind == JsonValueKind.Undefined)
+            return empty;
+
+        // Unwrap envelope: {"RESPONSE": [...]}
+        if (data.TryGetProperty("RESPONSE", out var responseList))
+        {
+            if (responseList.ValueKind == JsonValueKind.Array && responseList.GetArrayLength() > 0)
+                return ParseCuiResponse(cui, responseList[0]);
+            return empty;
+        }
+
+        // Array → recurse into first element
+        if (data.ValueKind == JsonValueKind.Array)
+        {
+            if (data.GetArrayLength() > 0)
+                return ParseCuiResponse(cui, data[0]);
+            return empty;
+        }
+
+        // Object row — NOMBRE arrives as "NOMBRES , APELLIDOS" (RENAP format)
+        return new CuiInfo(
+            Cui: cui,
+            Name: NormalizeCuiName(GetStr(data, "", "NOMBRE", "nombre", "Name", "name")),
+            Status: GetStr(data, "", "STATUS", "status")
+        );
+    }
+
+    /// <summary>
+    /// Tidy spacing only — SAT's "APELLIDOS, NOMBRES" string is kept verbatim otherwise.
+    /// <para>
+    /// The comma is deliberately preserved: it is how SAT delimits surnames from given
+    /// names, and commas already reach the DTE unharmed via NIT names such as "A3 CLOUD
+    /// TECHNOLOGIES, SOCIEDAD DE EMPRENDIMIENTO". Reordering is not attempted either — at
+    /// least one real production record arrives with its two sides swapped at
+    /// the source, so no rule could straighten every case.
+    /// </para>
+    /// </summary>
+    private static string NormalizeCuiName(string name) =>
+        string.Join(", ", name.Split(',')
+                              .Select(part => string.Join(' ',
+                                  part.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)))
+                              .Where(part => part.Length > 0));
 
     /// <summary>Get DTE info via SHARED_GETDTEINFO.</summary>
     public Task<JsonElement> GetDteInfoAsync(string authNumber, CancellationToken ct = default) =>

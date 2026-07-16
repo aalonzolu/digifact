@@ -9,11 +9,15 @@ namespace Digifact.Fel;
 /// </para>
 /// <para>
 /// Implicit conversion from <see langword="string"/> is supported:
-/// <c>"CF"</c> → consumer final, any digit string → NIT with auto-lookup.
+/// <c>"CF"</c> → consumer final, a 13-digit string → CUI with auto-lookup,
+/// any other digit string → NIT with auto-lookup.
 /// </para>
 /// </summary>
 public sealed class BuyerDetails
 {
+    /// <summary>Digits in a Guatemalan CUI (DPI); a NIT never reaches this length.</summary>
+    private const int CuiLength = 13;
+
     private BuyerDetails() { }
 
     /// <summary>Consumidor Final (anonymous buyer).</summary>
@@ -43,26 +47,34 @@ public sealed class BuyerDetails
         Email = email,
     };
 
-    /// <summary>Buyer identified by CUI (Código Único de Identificación).</summary>
-    public static BuyerDetails FromCui(string cui, string name) =>
+    /// <summary>
+    /// Buyer identified by CUI (Código Único de Identificación). When
+    /// <paramref name="name"/> is <see langword="null"/> the client will call
+    /// <c>LookupCuiAsync</c> automatically to resolve the buyer's name.
+    /// </summary>
+    public static BuyerDetails FromCui(string cui, string? name = null) =>
         new() { Nit = cui, Name = name, IsCui = true };
 
     /// <summary>
-    /// Implicit conversion from a string: <c>"CF"</c> → consumer final,
-    /// otherwise treated as a NIT that will be auto-looked up.
+    /// Implicit conversion from a string: <c>"CF"</c> → consumer final, a 13-digit
+    /// string → CUI, anything else → NIT. Both identifier forms are auto-looked up.
     /// </summary>
-    public static implicit operator BuyerDetails(string nitOrCf) =>
-        string.Equals(nitOrCf, "CF", StringComparison.OrdinalIgnoreCase)
-            ? Cf()
-            : FromNit(nitOrCf);
+    public static implicit operator BuyerDetails(string nitCuiOrCf)
+    {
+        if (string.Equals(nitCuiOrCf, "CF", StringComparison.OrdinalIgnoreCase))
+            return Cf();
+        return TaxHelper.StripTaxid(nitCuiOrCf).Length == CuiLength
+            ? FromCui(nitCuiOrCf)
+            : FromNit(nitCuiOrCf);
+    }
 
     internal bool IsConsumidorFinal { get; private init; }
     internal bool IsCui { get; private init; }
-    internal bool NeedsLookup => !IsConsumidorFinal && !IsCui && Name is null;
+    internal bool NeedsLookup => !IsConsumidorFinal && Name is null;
 
     /// <summary>NIT or CUI of the buyer (<see langword="null"/> for consumidor final).</summary>
     public string? Nit { get; private init; }
-    /// <summary>Buyer display name. <see langword="null"/> triggers auto-lookup on NIT buyers.</summary>
+    /// <summary>Buyer display name. <see langword="null"/> triggers auto-lookup on NIT and CUI buyers.</summary>
     public string? Name { get; private init; }
     /// <summary>Street address. Defaults to <c>"CIUDAD"</c>.</summary>
     public string? Address { get; private init; } = "CIUDAD";

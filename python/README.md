@@ -66,7 +66,19 @@ result = client.invoice(
     ]
 )
 
-# FACT a receptor con CUI
+# FACT a receptor con CUI (DPI) — el nombre se consulta en SAT automáticamente
+result = client.invoice(
+    buyer={"taxid": "1234567890123", "type": "CUI"},
+    items=[{"description": "Producto", "qty": 2, "price": 50.00}]
+)
+
+# Equivalente: un string de 13 dígitos se resuelve como CUI
+result = client.invoice(
+    buyer="1234567890123",
+    items=[{"description": "Producto", "qty": 2, "price": 50.00}]
+)
+
+# Con nombre explícito no se consulta SAT
 result = client.invoice(
     buyer={"taxid": "3730617490101", "type": "CUI", "name": "Juan Pérez"},
     items=[{"description": "Producto", "qty": 2, "price": 50.00}]
@@ -134,6 +146,10 @@ result = client.credit_note_total(
 # Consulta de NIT
 info = client.lookup_nit("12345678")
 print(info["name"])
+
+# Consulta de CUI (DPI) — SAT devuelve el nombre como "APELLIDOS, NOMBRES"
+info = client.lookup_cui("1234567890123")
+print(info["name"])   # "PEREZ LOPEZ, JUAN CARLOS"
 
 # Obtener DTE
 doc = client.get_dte("XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX")
@@ -340,12 +356,13 @@ Todos los métodos de emisión devuelven `DteResult` con `result.auth_number`, `
 | `credit_note_total()` | `credit_note_total(auth_number, issue_datetime, reason="...", reference="")` | Nota de crédito total. Devuelve `dict`. |
 | `cancel()` | `cancel(auth_number, receiver_id, issue_datetime, reason="Anulación")` | Anula un DTE. Devuelve `dict`. |
 | `lookup_nit()` | `lookup_nit(nit)` | Consulta SAT. Devuelve `{"nit","name","address","city","district","state"}`. |
+| `lookup_cui()` | `lookup_cui(cui)` | Consulta SAT por CUI (DPI). Devuelve `{"cui","name","status"}`. El nombre viene como `"APELLIDOS, NOMBRES"`, tal como lo registra SAT. |
 | `get_dte()` | `get_dte(auth_number, fmt="JSON")` | Recupera el DTE (`"JSON"`, `"XML"`, `"HTML"`, `"PDF"`). |
 | `get_dte_info()` | `get_dte_info(auth_number)` | Metadatos del DTE. |
 
 ### Parámetros comunes
 
-- **`buyer`**: `"CF"` (consumidor final), un NIT string (`"12345678"` — se consulta el nombre), un dict CUI (`{"type":"CUI","taxid":...,"name":...}`) o un dict NIT explícito (`{"taxid","name","address","city","district","state","country","email"}`).
+- **`buyer`**: `"CF"` (consumidor final), un NIT string (`"12345678"` — se consulta el nombre), un CUI string de 13 dígitos (`"1234567890123"` — se consulta el nombre), un dict CUI (`{"type":"CUI","taxid":...}` — se consulta el nombre; con `"name"` explícito no se consulta) o un dict NIT explícito (`{"taxid","name","address","city","district","state","country","email"}`).
 - **`items`**: lista de dicts con `description` (str, req), `price` (float/Decimal, req), `qty` (1), `type` (`"Servicio"`/`"Bien"`), `unit_of_measure` (`"UNI"`), `discount` (opcional).
 - **`origin`** (NCRE/NDEB): `{"auth_number": ..., "date": "YYYY-MM-DD", "series": ..., "number": ...}`.
 

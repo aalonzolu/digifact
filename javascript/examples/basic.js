@@ -68,6 +68,28 @@ try {
   console.error(`  ERROR: ${err.message}`);
 }
 
+// ── CUI Lookup ──
+console.log('\nLooking up CUI 1234567890123...');
+try {
+  const info = await client.lookupCui('1234567890123');
+  console.log(`  name   : ${info.name}`);
+  console.log(`  status : ${info.status}`);
+} catch (err) {
+  console.error(`  ERROR: ${err.message}`);
+}
+
+// ── FACT to a CUI (DPI) buyer — name resolved automatically ──
+console.log('\nEmitting FACT to a CUI buyer...');
+try {
+  const result = await client.invoice(
+    { taxid: '1234567890123', type: 'CUI' },
+    [{ description: 'Producto', qty: 1, price: 75.00, type: 'Bien' }],
+  );
+  console.log(`  auth: ${result.authNumber}`);
+} catch (err) {
+  console.error(`  ERROR: ${err.message}`);
+}
+
 // ── FACT Combustible ──
 // For gas stations, set petroleo_rates at init so you don't repeat petroleo_amount on each item.
 console.log('\nEmitting FACT Combustible...');

@@ -72,6 +72,26 @@ try:
 except DigifactError as exc:
     print(f"  ERROR: {exc}")
 
+# ── Lookup CUI ──
+print("\nLooking up CUI 1234567890123...")
+try:
+    info = client.lookup_cui("1234567890123")
+    print(f"  name   : {info['name']}")
+    print(f"  status : {info['status']}")
+except DigifactError as exc:
+    print(f"  ERROR: {exc}")
+
+# ── FACT to a CUI (DPI) buyer — name resolved automatically ──
+print("\nEmitting FACT to a CUI buyer...")
+try:
+    result = client.invoice(
+        buyer={"taxid": "1234567890123", "type": "CUI"},
+        items=[{"description": "Producto", "qty": 1, "price": 75.00, "type": "Bien"}],
+    )
+    print(f"  auth_number : {result.auth_number}")
+except DigifactError as exc:
+    print(f"  ERROR: {exc}")
+
 # ── FACT Combustible ──
 # For gas stations, set petroleo_rates at init so you don't repeat petroleo_amount on each item.
 print("\nEmitting FACT Combustible...")

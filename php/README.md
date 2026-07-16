@@ -66,7 +66,18 @@ $result = $client->invoice('12345678', [
     ['description' => 'Soporte', 'qty' => 1, 'price' => 500.00],
 ]);
 
-// FACT a receptor con CUI
+// FACT a receptor con CUI (DPI) — el nombre se consulta en SAT automáticamente
+$result = $client->invoice(
+    ['taxid' => '1234567890123', 'type' => 'CUI'],
+    [['description' => 'Producto', 'qty' => 2, 'price' => 50.00]]
+);
+
+// Equivalente: un string de 13 dígitos se resuelve como CUI
+$result = $client->invoice('1234567890123', [
+    ['description' => 'Producto', 'qty' => 2, 'price' => 50.00],
+]);
+
+// Con nombre explícito no se consulta SAT
 $result = $client->invoice(
     ['taxid' => '3730617490101', 'type' => 'CUI', 'name' => 'Juan Pérez'],
     [['description' => 'Producto', 'qty' => 2, 'price' => 50.00]]
@@ -114,6 +125,10 @@ $result = $client->cancel('XXXXXXXX-...', 'CF', '2026-03-18 21:40:14', 'Error en
 // Consulta de NIT
 $info = $client->lookupNit('12345678');
 echo $info['name'];
+
+// Consulta de CUI (DPI) — SAT devuelve el nombre como "APELLIDOS, NOMBRES"
+$info = $client->lookupCui('1234567890123');
+echo $info['name'];   // "PEREZ LOPEZ, JUAN CARLOS"
 
 // Obtener DTE
 $doc = $client->getDte('XXXXXXXX-...');
@@ -249,6 +264,7 @@ Todos los métodos devuelven `DteResult` (con `$result->authNumber`, `series`, `
 | `creditNoteTotal()` | `creditNoteTotal(string $authNumber, string $issueDateTime, string $reason = '...', string $reference = '')` | `array` | Nota de crédito total sobre un DTE previo. |
 | `cancel()` | `cancel(string $authNumber, string $receiverId, string $issueDateTime, string $reason = 'Anulación')` | `array` | Anula un DTE emitido. |
 | `lookupNit()` | `lookupNit(string $nit)` | `array` | Consulta el nombre y dirección de un NIT en SAT. Devuelve `['nit','name','address','city','district','state']`. |
+| `lookupCui()` | `lookupCui(string $cui)` | `array` | Consulta el nombre de un CUI (DPI) en SAT. Devuelve `['cui','name','status']`. El nombre viene como `"APELLIDOS, NOMBRES"`, tal como lo registra SAT. |
 | `getDte()` | `getDte(string $authNumber, string $format = 'JSON')` | `array` | Recupera el DTE en el formato indicado (`'JSON'`, `'XML'`, `'HTML'`, `'PDF'`). |
 | `getDteInfo()` | `getDteInfo(string $authNumber)` | `array` | Metadatos de un DTE emitido. |
 
@@ -257,7 +273,8 @@ Todos los métodos devuelven `DteResult` (con `$result->authNumber`, `series`, `
 - **`$buyer`**: puede ser
   - `'CF'` → consumidor final,
   - un NIT como string (`'12345678'`) → se consulta el nombre automáticamente,
-  - un array `['type' => 'CUI', 'taxid' => ..., 'name' => ...]`, o
+  - un CUI como string de 13 dígitos (`'1234567890123'`) → se consulta el nombre automáticamente,
+  - un array `['type' => 'CUI', 'taxid' => ...]` → se consulta el nombre; con `'name'` explícito no se consulta,
   - un array NIT explícito (`['taxid','name','address','city','district','state','country','email']`).
 - **`$items`**: lista de arreglos con `description` (string, req), `price` (float, req), `qty` (float, 1), `type` (`'Bien'`/`'Servicio'`), `unit_of_measure` (`'UNI'`), `discount` (opcional).
 - **`$opts`**: `doc_type` (`'FACT'`/`'FCAM'`/`'FESP'`/`'FPEQ'`/`'NABN'`/`'RDON'`/`'RECI'`), `payment_terms` (req. para FCAM), `amount_str`, `observaciones`, `tipo_personeria`, `tipo_frase`, `escenario`.

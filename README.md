@@ -102,6 +102,7 @@ Console.WriteLine(result.AuthNumber);
 | `fuelInvoice()` | FACT+Combustible | Factura con IVA + impuesto PETROLEO |
 | `ccaInvoice()` | FACT+CCA | Cobro por cuenta ajena |
 | `lookupNit()` | — | Consulta nombre/dirección de un NIT en SAT |
+| `lookupCui()` | — | Consulta el nombre de un CUI (DPI) en SAT |
 | `getDte()` | — | Descarga un DTE ya emitido |
 
 ## Configuración del cliente (común a los 4 SDKs)

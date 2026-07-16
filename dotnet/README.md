@@ -40,8 +40,20 @@ var result2 = await client.InvoiceAsync("12345678", new[]
     new LineItem { Description = "Soporte",  Qty = 1, Price = 500.00m },
 });
 
-// FACT a receptor con CUI
+// FACT a receptor con CUI (DPI) — el nombre se consulta en SAT automáticamente
 var result3 = await client.InvoiceAsync(
+    BuyerDetails.FromCui("1234567890123"),
+    new[] { new LineItem { Description = "Producto", Qty = 2, Price = 50.00m } }
+);
+
+// Equivalente: un string de 13 dígitos se resuelve como CUI
+var result3Cui = await client.InvoiceAsync(
+    "1234567890123",
+    new[] { new LineItem { Description = "Producto", Qty = 2, Price = 50.00m } }
+);
+
+// Con nombre explícito no se consulta SAT
+var result3Named = await client.InvoiceAsync(
     BuyerDetails.FromCui("3730617490101", "Juan Pérez"),
     new[] { new LineItem { Description = "Producto", Qty = 2, Price = 50.00m } }
 );
@@ -88,6 +100,10 @@ var cancel = await client.CancelAsync("XXXXXXXX-...", "CF", "2026-03-18 21:40:14
 // Consulta de NIT
 var info = await client.LookupNitAsync("12345678");
 Console.WriteLine(info.Name);
+
+// Consulta de CUI (DPI) — SAT devuelve el nombre como "APELLIDOS, NOMBRES"
+var cuiInfo = await client.LookupCuiAsync("1234567890123");
+Console.WriteLine(cuiInfo.Name);   // "PEREZ LOPEZ, JUAN CARLOS"
 
 // Obtener DTE
 var doc = await client.GetDteAsync("XXXXXXXX-...");
@@ -251,6 +267,7 @@ Todos los métodos de emisión son `async`. Devuelven `DteResult` con `.AuthNumb
 | `CreditNoteTotalAsync()` | `CreditNoteTotalAsync(string authNumber, string issueDateTime, string reason = "...", string reference = "", ...)` | Nota de crédito total. Devuelve `JsonElement`. |
 | `CancelAsync()` | `CancelAsync(string authNumber, string receiverId, string issueDateTime, string reason = "Anulación", ...)` | Anula un DTE. Devuelve `JsonElement`. |
 | `LookupNitAsync()` | `LookupNitAsync(string nit, CancellationToken ct = default)` | Consulta SAT. Devuelve `NitInfo`. |
+| `LookupCuiAsync()` | `LookupCuiAsync(string cui, CancellationToken ct = default)` | Consulta SAT por CUI (DPI). Devuelve `CuiInfo`. El nombre viene como `"APELLIDOS, NOMBRES"`, tal como lo registra SAT. |
 | `GetDteAsync()` | `GetDteAsync(string authNumber, string format = "JSON", ...)` | Recupera el DTE. |
 | `GetDteInfoAsync()` | `GetDteInfoAsync(string authNumber, ...)` | Metadatos del DTE. |
 

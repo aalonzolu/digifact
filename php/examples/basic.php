@@ -74,6 +74,28 @@ try {
     echo "  ERROR: {$e->getMessage()}\n";
 }
 
+// ── CUI Lookup ──
+echo "\nLooking up CUI 1234567890123...\n";
+try {
+    $info = $client->lookupCui('1234567890123');
+    echo "  name   : {$info['name']}\n";
+    echo "  status : {$info['status']}\n";
+} catch (DigifactException $e) {
+    echo "  ERROR: {$e->getMessage()}\n";
+}
+
+// ── FACT to a CUI (DPI) buyer — name resolved automatically ──
+echo "\nEmitting FACT to a CUI buyer...\n";
+try {
+    $result = $client->invoice(
+        ['taxid' => '1234567890123', 'type' => 'CUI'],
+        [['description' => 'Producto', 'qty' => 1, 'price' => 75.00, 'type' => 'Bien']]
+    );
+    echo "  auth: {$result->authNumber}\n";
+} catch (DigifactException $e) {
+    echo "  ERROR: {$e->getMessage()}\n";
+}
+
 // ── FACT Combustible ──
 // For gas stations, set petroleo_rates at init so you don't repeat petroleo_amount on each item.
 echo "\nEmitting FACT Combustible...\n";
