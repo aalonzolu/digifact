@@ -18,5 +18,14 @@
   "keywords": ["digifact", "fel", "guatemala", "factura", "e-invoicing", "sat"],
   "author": "AALONZOLU",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aalonzolu/digifact.git",
+    "directory": "javascript"
+  },
+  "homepage": "https://github.com/aalonzolu/digifact#readme",
+  "bugs": {
+    "url": "https://github.com/aalonzolu/digifact/issues"
+  },
   "dependencies": {}
 }
