@@ -17,6 +17,8 @@ on:
       - 'php/**'
       - 'javascript/**'
       - 'dotnet/**'
+      - 'scripts/validate_sdks.py'
+      - '.github/workflows/ci.yml'
 
 jobs:
   # ── Python SDK ──────────────────────────────────────────────────────────────
@@ -37,14 +39,16 @@ jobs:
       - name: Install
         run: pip install -e "python/[dev]"
 
+      # No credentials in env: the integration classes skip themselves, so this
+      # runs every credential-free test without needing a name filter to list them.
       - name: Unit tests
         working-directory: python
-        run: python -m pytest tests/ -v -k "Unit"
+        run: python -m pytest tests/ -v
 
   python-integration:
     name: Python — integration tests
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && github.event.repository.fork == false }}
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
 
@@ -86,12 +90,12 @@ jobs:
 
       - name: Unit tests
         working-directory: php
-        run: ./vendor/bin/phpunit tests/ --filter "testPad|testCalc|testFmt|testDteResult|testCuiParse"
+        run: ./vendor/bin/phpunit tests/ --testdox
 
   php-integration:
     name: PHP — integration tests
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && github.event.repository.fork == false }}
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
 
@@ -130,12 +134,12 @@ jobs:
 
       - name: Unit tests
         working-directory: javascript
-        run: node --test --test-name-pattern="Unit" tests/integration.test.js
+        run: node --test tests/integration.test.js
 
   javascript-integration:
     name: Node — integration tests
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && github.event.repository.fork == false }}
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
 
@@ -153,18 +157,14 @@ jobs:
 
   # ── .NET SDK ────────────────────────────────────────────────────────────────
   dotnet-unit:
-    name: .NET ${{ matrix.dotnet-version }} — unit tests
+    name: .NET — unit tests
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        dotnet-version: ["8.0", "9.0"]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ matrix.dotnet-version }}
+          dotnet-version: "10.0.x"
 
       - name: Unit tests
         working-directory: dotnet
@@ -173,13 +173,13 @@ jobs:
   dotnet-integration:
     name: .NET — integration tests
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && github.event.repository.fork == false }}
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0"
+          dotnet-version: "10.0.x"
 
       - name: Integration tests
         working-directory: dotnet
@@ -193,7 +193,7 @@ jobs:
   validate-examples:
     name: Validate SDK examples
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && github.event.repository.fork == false }}
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     needs: [python-unit, php-unit, javascript-unit, dotnet-unit]
     steps:
       - uses: actions/checkout@v4
