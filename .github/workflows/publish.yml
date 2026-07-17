@@ -84,6 +84,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python/dist/
+          skip-existing: true  # re-running a tag must not fail on an already-published version
         # Alternative: use API token instead of trusted publishing
         # with:
         #   password: ${{ secrets.PYPI_API_TOKEN }}
@@ -94,13 +95,31 @@ jobs:
     name: Publish to npm
     runs-on: ubuntu-latest
     needs: test
+    permissions:
+      contents: read
+      id-token: write  # required for npm OIDC trusted publishing
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"   # npm 11.5.1+ is required for OIDC; Node 24 ships it
           registry-url: "https://registry.npmjs.org"
+
+      - name: Unblock OIDC by stripping the _authToken line
+        # setup-node always writes `_authToken=${NODE_AUTH_TOKEN}` when registry-url is
+        # set. With no token that expands to an empty value, npm assumes auth is already
+        # configured, never performs the OIDC exchange, and the registry answers E404.
+        # See actions/setup-node#1551. The file lives at NPM_CONFIG_USERCONFIG, not ~/.npmrc.
+        run: |
+          npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          if [ -f "$npmrc" ]; then
+            sed -i '/_authToken/d' "$npmrc"
+            echo "Stripped _authToken from $npmrc:"
+            cat "$npmrc"
+          else
+            echo "No .npmrc at $npmrc — nothing to strip."
+          fi
 
       - name: Set package version from tag
         run: |
@@ -108,11 +127,11 @@ jobs:
           VERSION="${TAG#v}"
           cd javascript && npm version "$VERSION" --no-git-tag-version --allow-same-version
 
-      - name: Publish to npm
+      - name: Publish to npm (OIDC trusted publishing — no NPM_TOKEN needed)
         working-directory: javascript
+        # Do NOT set NODE_AUTH_TOKEN here: any value, even empty, suppresses OIDC.
+        # Provenance is generated automatically under trusted publishing.
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ── 4. Publish C# SDK to NuGet ────────────────────────────────────────────
   publish-nuget:
@@ -155,7 +174,7 @@ jobs:
 
       - name: Publish to NuGet
         working-directory: dotnet
-        run: dotnet nuget push nupkgs/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+        run: dotnet nuget push nupkgs/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
   # ── 5. Notify Packagist to update PHP SDK ─────────────────────────────────
   publish-packagist:
