@@ -153,7 +153,7 @@ class DteBuilder
             case 'RECI':
                 return ['4', '5'];
             case 'NABN':
-                return ['1', '1'];
+                return ['9', '17'];
             default:
                 // FACT, NCRE, NDEB, FCAM, FACT+CCA, FACT+combustible
                 if ($afi === 'PEQ') {

@@ -53,24 +53,13 @@ def _client() -> "DigifactClient":
 
 
 # ── Upstream outages ─────────────────────────────────────────────────────────
-# Two Digifact/SAT-side failures currently have no SDK-side workaround. These
-# helpers match each one narrowly so that any *other* failure of the same test
-# still fails the run.
-
-NABN_FRASE_SKIP = (
-    "Upstream: Digifact rejects every NABN with FEL_RCP112 demanding frase "
-    "TipoFrase=9/CodigoEscenario=17, including payloads that carry exactly that "
-    "frase — the rule is unsatisfiable from the NUC JSON. Pending Digifact support."
-)
+# One SAT-side failure currently has no SDK-side workaround. The helper matches
+# it narrowly so that any *other* failure of the same test still fails the run.
 
 CANCEL_SAT_SKIP = (
     "Upstream: SAT's anulación transmission is failing (Codigo 9019, 'Error al "
     "transmitir anulación a SAT'). Certification is unaffected."
 )
-
-
-def _is_nabn_frase_rule(exc: Exception) -> bool:
-    return "FEL_RCP112" in str(exc)
 
 
 def _is_sat_cancel_outage(exc: Exception) -> bool:
@@ -212,6 +201,16 @@ class TestBuilderUnit(unittest.TestCase):
         self.assertEqual(payload["Seller"]["TaxID"], "12345678")
         self.assertIn("Items", payload)
         self.assertIsNotNone(payload["Items"][0]["Taxes"])
+
+    def test_nabn_carries_only_frase_9_17(self):
+        from digifact_sdk.builder import _build_buyer_cf, build_nabn, default_frase
+        self.assertEqual(default_frase("NABN"), ("9", "17"))
+        payload = build_nabn("12345678", "TEST", "CALLE", _build_buyer_cf(),
+                             [{"description": "X", "qty": 1, "price": 100.0}])
+        self.assertEqual(payload["Seller"]["AdditionlInfo"], [
+            {"Name": "TipoFrase", "Data": "1", "Value": "9"},
+            {"Name": "Escenario", "Data": "1", "Value": "17"},
+        ])
 
     def test_fesp_no_additionlinfo(self):
         seller = self._make_seller(doc_type="FESP")
@@ -668,16 +667,11 @@ class TestNDEBandNCRE(unittest.TestCase):
 @unittest.skipIf(SKIP, SKIP_REASON)
 class TestNABN(unittest.TestCase):
     def test_nabn(self):
-        try:
-            result = _client().invoice(
-                "77454820",
-                [{"description": "RETENEDOR BLANCO", "qty": 1, "price": 100.00, "type": "Bien"}],
-                doc_type="NABN",
-            )
-        except DigifactError as exc:
-            if _is_nabn_frase_rule(exc):
-                self.skipTest(NABN_FRASE_SKIP)
-            raise
+        result = _client().invoice(
+            "77454820",
+            [{"description": "RETENEDOR BLANCO", "qty": 1, "price": 100.00, "type": "Bien"}],
+            doc_type="NABN",
+        )
         self.assertTrue(result.auth_number)
         print(f"\n  NABN auth: {result.auth_number}")
 

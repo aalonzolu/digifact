@@ -46,7 +46,7 @@ internal static class DteBuilder
             "FPEQ" => ("2", "1"),
             "RDON" => ("4", "4"),
             "RECI" => ("4", "5"),
-            "NABN" => ("1", "1"),
+            "NABN" => ("9", "17"),
             _ => af switch
             {
                 "PEQ" => ("2", "1"),

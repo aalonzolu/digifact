@@ -390,6 +390,18 @@ public class FuelFrasesTests
     }
 
     [Fact]
+    public void Nabn_CarriesOnlyFrase917()
+    {
+        var payload = DteBuilder.BuildFact(
+            "12345678", "SELLER", "ADDR", DteBuilder.BuyerCf(),
+            new[] { new LineItem { Description = "X", Qty = 1, Price = 100m } }, docType: "NABN");
+        var ai = payload["Seller"]!["AdditionlInfo"]!.AsArray();
+        Assert.Equal(2, ai.Count);
+        Assert.Equal("9", (string?)ai[0]!["Value"]);
+        Assert.Equal("17", (string?)ai[1]!["Value"]);
+    }
+
+    [Fact]
     public void BuildFactCombustible_MutualExclusivity_Throws()
     {
         var buyer = DteBuilder.BuyerCf();

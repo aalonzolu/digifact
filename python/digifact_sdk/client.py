@@ -431,6 +431,8 @@ class DigifactClient:
                 buyer_dict,
                 items,
                 afiliacion=self.afiliacion_iva,
+                tipo_frase=tf,
+                escenario=es,
                 amount_str=amount_str,
                 observaciones=observaciones,
                 frases=eff_frases,

@@ -76,7 +76,7 @@ export function defaultFrase(docType, afiliacion = 'GEN') {
   if (docType === 'FPEQ') return ['2', '1'];
   if (docType === 'RDON') return ['4', '4'];
   if (docType === 'RECI') return ['4', '5'];
-  if (docType === 'NABN') return ['1', '1'];
+  if (docType === 'NABN') return ['9', '17'];
   // FACT, NCRE, NDEB, FCAM, FACT+CCA, FACT+combustible
   if (afi === 'PEQ') return ['2', '1'];
   if (afi === 'EXE') return ['4', '1'];

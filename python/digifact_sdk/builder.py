@@ -159,7 +159,7 @@ def default_frase(doc_type: str, afiliacion: str = "GEN") -> tuple[str, str] | N
     if doc_type == "RECI":
         return ("4", "5")
     if doc_type == "NABN":
-        return ("1", "1")
+        return ("9", "17")
     # FACT, NCRE, NDEB, FCAM, FACT+CCA, FACT+combustible
     if afi == "PEQ":
         return ("2", "1")
@@ -735,6 +735,8 @@ def build_nabn(
     items: list[dict],
     *,
     afiliacion: str = "GEN",
+    tipo_frase: str | None = "9",
+    escenario: str | None = "17",
     amount_str: str = "",
     observaciones: str = "-",
     seller_email: str | None = None,
@@ -744,14 +746,13 @@ def build_nabn(
     issue_dt, _, _ = gt_now()
     line_items, totals = _build_items(items, taxable=False)
 
-    # NABN: uses TipoFrase=1, Escenario=1 in seller (matches smoke runner)
     seller = _build_seller(
         taxid,
         seller_name,
         seller_address,
         afiliacion=afiliacion,
-        tipo_frase="1",
-        escenario="1",
+        tipo_frase=tipo_frase,
+        escenario=escenario,
         frases=frases,
         email=seller_email,
     )

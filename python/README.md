@@ -317,7 +317,7 @@ configurar nada en el caso común.
 | FPEQ        | PEQ        | `2`       | `1`             | Pequeño contribuyente |
 | RDON        | cualquiera | `4`       | `4`             | Donaciones |
 | RECI        | cualquiera | `4`       | `5`             | Recibos (universidades) |
-| NABN        | cualquiera | `1`       | `1`             | Abonos |
+| NABN        | cualquiera | `9`       | `17`            | Abonos |
 | FACT / FCAM / NCRE / NDEB | **GEN** | `1` | `1` | Por defecto: ISR **régimen sobre utilidades trimestrales** |
 | FACT / FCAM / NCRE / NDEB | PEQ | `2` | `1` | |
 | FACT / FCAM / NCRE / NDEB | EXE | `4` | `1` | Exento |

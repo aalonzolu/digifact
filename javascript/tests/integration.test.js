@@ -37,20 +37,12 @@ const CLIENT = SKIP ? null : new DigifactClient({
 });
 
 // ── Upstream outages ─────────────────────────────────────────────────────────
-// Two Digifact/SAT-side failures currently have no SDK-side workaround. These
-// helpers match each one narrowly so that any *other* failure of the same test
-// still fails the run.
-
-const NABN_FRASE_SKIP =
-  'Upstream: Digifact rejects every NABN with FEL_RCP112 demanding frase ' +
-  'TipoFrase=9/CodigoEscenario=17, including payloads that carry exactly that frase — ' +
-  'the rule is unsatisfiable from the NUC JSON. Pending Digifact support.';
+// One SAT-side failure currently has no SDK-side workaround. The helper matches
+// it narrowly so that any *other* failure of the same test still fails the run.
 
 const CANCEL_SAT_SKIP =
   "Upstream: SAT's anulación transmission is failing (Codigo 9019, " +
   "'Error al transmitir anulación a SAT'). Certification is unaffected.";
-
-const isNabnFraseRule = (e) => String(e?.message ?? '').includes('FEL_RCP112');
 
 const isSatCancelOutage = (e) =>
   String(e?.raw?.Codigo ?? '') === '9019' || String(e?.message ?? '').includes('9019');
@@ -106,6 +98,16 @@ describe('Unit: DteResult', () => {
 });
 
 describe('Unit: builder', () => {
+  test('NABN carries only frase 9/17', () => {
+    const payload = buildFact('12345678', 'SELLER', 'ADDR', buyerCf(), [
+      { description: 'X', qty: 1, price: 100 },
+    ], { docType: 'NABN' });
+    assert.deepEqual(payload.Seller.AdditionlInfo, [
+      { Name: 'TipoFrase', Data: '1', Value: '9' },
+      { Name: 'Escenario', Data: '1', Value: '17' },
+    ]);
+  });
+
   test('buildFact CF has correct structure', () => {
     const payload = buildFact('12345678', 'SELLER', 'ADDR', buyerCf(), [
       { description: 'Servicio', qty: 1, price: 100 },
@@ -560,16 +562,10 @@ if (SKIP) {
   });
 
   describe('Integration: NABN', () => {
-    test('emit NABN', async (t) => {
-      let result;
-      try {
-        result = await CLIENT.invoice('77454820', [
-          { description: 'RETENEDOR BLANCO', qty: 1, price: 100, type: 'Bien' },
-        ], { doc_type: 'NABN' });
-      } catch (e) {
-        if (!isNabnFraseRule(e)) throw e;
-        return t.skip(NABN_FRASE_SKIP);
-      }
+    test('emit NABN', async () => {
+      const result = await CLIENT.invoice('77454820', [
+        { description: 'RETENEDOR BLANCO', qty: 1, price: 100, type: 'Bien' },
+      ], { doc_type: 'NABN' });
       assert.ok(result.authNumber);
       console.log(`  NABN auth: ${result.authNumber}`);
     });

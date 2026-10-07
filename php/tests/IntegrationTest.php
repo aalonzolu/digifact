@@ -53,21 +53,12 @@ class IntegrationTest extends TestCase
     }
 
     // ── Upstream outages ─────────────────────────────────────────────────────
-    // Two Digifact/SAT-side failures currently have no SDK-side workaround.
-    // These helpers match each one narrowly so that any *other* failure of the
-    // same test still fails the run.
-
-    private const NABN_FRASE_SKIP = 'Upstream: Digifact rejects every NABN with FEL_RCP112 demanding frase '
-        . 'TipoFrase=9/CodigoEscenario=17, including payloads that carry exactly that frase — the rule is '
-        . 'unsatisfiable from the NUC JSON. Pending Digifact support.';
+    // One SAT-side failure currently has no SDK-side workaround. The helper
+    // matches it narrowly so that any *other* failure of the same test still
+    // fails the run.
 
     private const CANCEL_SAT_SKIP = "Upstream: SAT's anulación transmission is failing (Codigo 9019, "
         . "'Error al transmitir anulación a SAT'). Certification is unaffected.";
-
-    private function isNabnFraseRule(DigifactException $e): bool
-    {
-        return str_contains($e->getMessage(), 'FEL_RCP112');
-    }
 
     private function isSatCancelOutage(DigifactException $e): bool
     {
@@ -428,6 +419,13 @@ class IntegrationTest extends TestCase
         return $frases;
     }
 
+    public function testNabnCarriesOnlyFrase917(): void
+    {
+        $payload = DteBuilder::buildFact('12345678', 'TEST', 'CALLE', $this->getBuyer(),
+            [['description' => 'X', 'qty' => 1, 'price' => 100.0]], 'NABN');
+        $this->assertSame([['9', '17']], $this->getFrasesFromPayload($payload));
+    }
+
     public function testNonFuelInvoiceHasBaseFraseOnly(): void
     {
         $buyer = DteBuilder::buyerNit('12345678', 'TEST');
@@ -681,16 +679,9 @@ class IntegrationTest extends TestCase
     public function testNabn(): void
     {
         $client = $this->requireClient();
-        try {
-            $result = $client->invoice('77454820', [
-                ['description' => 'RETENEDOR BLANCO', 'qty' => 1, 'price' => 100.00, 'type' => 'Bien'],
-            ], ['doc_type' => 'NABN']);
-        } catch (DigifactException $e) {
-            if ($this->isNabnFraseRule($e)) {
-                $this->markTestSkipped(self::NABN_FRASE_SKIP);
-            }
-            throw $e;
-        }
+        $result = $client->invoice('77454820', [
+            ['description' => 'RETENEDOR BLANCO', 'qty' => 1, 'price' => 100.00, 'type' => 'Bien'],
+        ], ['doc_type' => 'NABN']);
         $this->assertNotEmpty($result->authNumber);
         echo "\n  NABN auth: " . $result->authNumber;
     }
