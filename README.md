@@ -99,7 +99,7 @@ Console.WriteLine(result.AuthNumber);
 | `creditNote()` | NCRE | Nota de crédito parcial |
 | `creditNoteTotal()` | — | Nota de crédito total (anulación) |
 | `cancel()` | — | Anulación de DTE |
-| `fuelInvoice()` | FACT+Combustible | Factura con IVA + impuesto PETROLEO |
+| `fuelInvoice()` | FACT+Combustible | Factura con IVA + impuesto PETROLEO, o exenta por el Decreto 22-2026 |
 | `ccaInvoice()` | FACT+CCA | Cobro por cuenta ajena |
 | `lookupNit()` | — | Consulta nombre/dirección de un NIT en SAT |
 | `lookupCui()` | — | Consulta el nombre de un CUI (DPI) en SAT |
@@ -129,6 +129,51 @@ Ordenados de más usados a menos usados.
 | `tipo_personeria` / `TipoPersoneria` | | Código de personería del RTU. Sólo aplica a RDON. Default `"1"`. |
 
 Ver detalles y ejemplos por lenguaje en los READMEs respectivos.
+
+## Exención temporal de combustibles (Decreto 22-2026)
+
+Del **1 de octubre al 31 de diciembre de 2026** la gasolina superior, la regular y el diésel están exentos
+de IVA e IDP. El combustible comprado exento se sigue vendiendo sin impuestos hasta agotarlo, aunque sea
+después del 31 de diciembre, así que el corte depende del inventario de cada estación. Por eso los SDKs no
+aplican la exención por fecha: la decide el código de unidad gravable de cada ítem.
+
+| `petroleo_code` | Combustible exento | IDP exonerado (Q/galón) |
+|:---:|---|---:|
+| `18` | Gasolina superior | 4.70 |
+| `21` | Gasolina regular con etanol (la que despachan las estaciones) | 4.14 |
+| `20` | Diésel | 1.30 |
+| `19` | Gasolina regular sin etanol. SAT sólo lo acepta a importadores | 4.60 |
+
+Con cualquiera de esos códigos el SDK envía el IVA como exento (unidad gravable `2`, monto 0), el PETROLEO
+en 0 y agrega las frases `9/23` y `4/38` a las que ya lleve la factura. No hace falta `petroleo_amount` ni
+`petroleo_rates`. `price` es el precio de bomba, ya sin IVA ni IDP, y `qty` va en galones:
+
+```python
+client.fuel_invoice("CF", [
+    {"description": "GASOLINA SUPER",   "qty": 10, "price": 30.00, "petroleo_code": "18", "unit_of_measure": "GAL"},
+    {"description": "GASOLINA REGULAR", "qty": 5,  "price": 28.00, "petroleo_code": "21", "unit_of_measure": "GAL"},
+    {"description": "DIESEL",           "qty": 20, "price": 27.00, "petroleo_code": "20", "unit_of_measure": "GAL"},
+])
+```
+
+La representación gráfica debe mostrar cuánto se habría pagado de cada impuesto. La de Digifact ya lo
+imprime sola; si imprimes tu propio ticket, pide los montos y las leyendas al SDK:
+
+```python
+from digifact_sdk import fuel_exemption
+
+exencion = fuel_exemption(items)
+exencion.idp        # Decimal("93.70")
+exencion.iva        # Decimal("117.60")
+exencion.leyendas   # ["Monto de exención temporal de IDP aplicada: Q 93.70, según Decreto Número 22-2026", ...]
+```
+
+A tener en cuenta:
+
+- Mientras dura la exención, SAT rechaza el IDP con monto mayor a cero en los códigos gravados.
+- Al agotar el inventario exento, vuelve a los códigos gravados con su `petroleo_amount`.
+- En facturas que mezclan combustible exento con ítems gravados, la representación de Digifact calcula la
+  leyenda del IVA sobre el total de la factura; `fuel_exemption` la calcula sólo sobre el combustible exento.
 
 ## Subsidio combustibles
 

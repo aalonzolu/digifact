@@ -287,6 +287,124 @@ class IntegrationTest extends TestCase
 
 
 
+    public function testPetroleoRatesExemptCodeNeedsNoRate(): void
+    {
+        $client = new DigifactClient(['taxid' => '12345678', 'username' => 'U', 'password' => 'P']);
+        $resolved = $this->invokeApplyPetroleoRates($client, [
+            ['description' => 'DIESEL', 'price' => 27.00, 'petroleo_code' => '20'],
+        ]);
+        $this->assertArrayNotHasKey('petroleo_amount', $resolved[0]);
+    }
+
+    // ── Unit tests: Decreto 22-2026 fuel exemption ────────────────────────────
+
+    private function getExemptFuelItems(): array
+    {
+        return [
+            ['description' => 'SUPER',   'qty' => 2.5, 'price' => 30.00, 'petroleo_code' => '18'],
+            ['description' => 'REGULAR', 'qty' => 1,   'price' => 28.00, 'petroleo_code' => '21'],
+            ['description' => 'DIESEL',  'qty' => 1,   'price' => 27.00, 'petroleo_code' => '20'],
+        ];
+    }
+
+    private function buildFuelPayload(array $items, ?array $frases = null): array
+    {
+        return DteBuilder::buildFactCombustible(
+            '12345678', 'SELLER', 'ADDR', $this->getBuyer(), $items, 'GEN', null, null, null, $frases
+        );
+    }
+
+    public function testExemptFuelItemCarriesBothTaxesAtZero(): void
+    {
+        [$iva, $petroleo] = $this->buildFuelPayload($this->getExemptFuelItems())['Items'][0]['Taxes']['Tax'];
+        $this->assertSame(
+            ['Code' => '2', 'Description' => 'IVA', 'TaxableAmount' => '75.000000', 'Amount' => '0.000000'],
+            $iva
+        );
+        $this->assertSame(
+            ['Code' => '18', 'Description' => 'PETROLEO', 'TaxableAmount' => '2.500000', 'Amount' => '0.000000'],
+            $petroleo
+        );
+    }
+
+    public function testExemptFuelTotalsIncludePetroleoAtZero(): void
+    {
+        $totals = $this->buildFuelPayload($this->getExemptFuelItems())['Totals'];
+        $this->assertSame([
+            ['Description' => 'IVA', 'Amount' => '0.000000'],
+            ['Description' => 'PETROLEO', 'Amount' => '0.000000'],
+        ], $totals['TotalTaxes']['TotalTax']);
+        $this->assertSame('130.000000', $totals['GrandTotal']['InvoiceTotal']);
+    }
+
+    public function testExemptionFrasesFollowTheBaseFrase(): void
+    {
+        $payload = $this->buildFuelPayload($this->getExemptFuelItems());
+        $this->assertSame([['1', '1'], ['9', '23'], ['4', '38']], $this->getFrasesFromPayload($payload));
+    }
+
+    public function testExemptionFrasesAddedToExplicitFrasesOnce(): void
+    {
+        $payload = $this->buildFuelPayload($this->getExemptFuelItems(), [
+            ['tipo_frase' => '1', 'escenario' => '2'],
+            ['tipo_frase' => '4', 'escenario' => '38'],
+        ]);
+        $this->assertSame([['1', '2'], ['4', '38'], ['9', '23']], $this->getFrasesFromPayload($payload));
+    }
+
+    public function testTaxedFuelGetsNoExemptionFrases(): void
+    {
+        $payload = $this->buildFuelPayload($this->getFuelItems());
+        $this->assertSame([['1', '1']], $this->getFrasesFromPayload($payload));
+    }
+
+    public function testExemptFuelMixedWithTaxedItem(): void
+    {
+        $items   = $this->getExemptFuelItems();
+        $items[] = ['description' => 'FILTRO', 'qty' => 1, 'price' => 56.00];
+        $payload = $this->buildFuelPayload($items);
+        $this->assertSame(
+            [['Code' => '1', 'Description' => 'IVA', 'TaxableAmount' => '50.000000', 'Amount' => '6.000000']],
+            $payload['Items'][3]['Taxes']['Tax']
+        );
+        $this->assertSame([
+            ['Description' => 'IVA', 'Amount' => '6.000000'],
+            ['Description' => 'PETROLEO', 'Amount' => '0.000000'],
+        ], $payload['Totals']['TotalTaxes']['TotalTax']);
+        $this->assertSame('186.000000', $payload['Totals']['GrandTotal']['InvoiceTotal']);
+    }
+
+    public function testExemptCodeIgnoresPetroleoAmount(): void
+    {
+        $payload = $this->buildFuelPayload([
+            ['description' => 'SUPER', 'qty' => 1, 'price' => 30.00, 'petroleo_code' => '18', 'petroleo_amount' => 4.70],
+        ]);
+        $this->assertSame('0.000000', $payload['Items'][0]['Taxes']['Tax'][1]['Amount']);
+        $this->assertSame('30.000000', $payload['Items'][0]['Totals']['TotalItem']);
+    }
+
+    public function testFuelExemptionAmountsAndLeyendas(): void
+    {
+        $items   = $this->getExemptFuelItems();
+        $items[] = ['description' => 'FILTRO', 'qty' => 1, 'price' => 56.00];
+        $this->assertSame([
+            'iva'      => '15.60',
+            'idp'      => '17.19',
+            'leyendas' => [
+                'Monto de exención temporal de IDP aplicada: Q 17.19, según Decreto Número 22-2026',
+                'Monto de exención temporal de IVA aplicada: Q 15.60, según Decreto Número 22-2026',
+            ],
+        ], DteBuilder::fuelExemption($items));
+    }
+
+    public function testFuelExemptionWithoutExemptItems(): void
+    {
+        $this->assertSame(
+            ['iva' => '0.00', 'idp' => '0.00', 'leyendas' => []],
+            DteBuilder::fuelExemption($this->getFuelItems())
+        );
+    }
+
     // ── Unit tests: fuel frases ───────────────────────────────────────────────
 
     private function getBuyer(): array
@@ -660,8 +778,8 @@ class IntegrationTest extends TestCase
     {
         $client = $this->requireClient();
         $result = $client->fuelInvoice('CF', [
-            ['description' => 'GASOLINA SUPER',    'qty' => 1, 'price' => 35.00, 'petroleo_amount' => 4.70, 'petroleo_code' => '1', 'type' => 'Bien'],
-            ['description' => 'GASOLINA REGULAR',  'qty' => 1, 'price' => 34.00, 'petroleo_amount' => 4.60, 'petroleo_code' => '2', 'type' => 'Bien'],
+            ['description' => 'GASOLINA SUPER',    'qty' => 1, 'price' => 30.00, 'petroleo_code' => '18', 'type' => 'Bien'],
+            ['description' => 'GASOLINA REGULAR',  'qty' => 1, 'price' => 28.00, 'petroleo_code' => '21', 'type' => 'Bien'],
             ['description' => 'FILTRO DE ACEITE',  'qty' => 1, 'price' => 45.00, 'type' => 'Bien'],
         ]);
         $this->assertNotEmpty($result->authNumber);

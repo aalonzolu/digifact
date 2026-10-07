@@ -413,3 +413,131 @@ public class FuelFrasesTests
             }));
     }
 }
+
+// ── Decreto 22-2026 fuel exemption unit tests ─────────────────────────────────
+
+public class FuelExemptionTests
+{
+    private static FuelLineItem[] ExemptItems() => new[]
+    {
+        new FuelLineItem { Description = "SUPER",   Qty = 2.5m, Price = 30.00m, PetroleoCode = FuelExemptCodes.Super },
+        new FuelLineItem { Description = "REGULAR", Qty = 1m,   Price = 28.00m, PetroleoCode = FuelExemptCodes.RegularEthanol },
+        new FuelLineItem { Description = "DIESEL",  Qty = 1m,   Price = 27.00m, PetroleoCode = FuelExemptCodes.Diesel },
+    };
+
+    private static FuelLineItem Filtro() => new() { Description = "FILTRO", Qty = 1m, Price = 56.00m };
+
+    private static FuelLineItem[] TaxedItems() => new[]
+    {
+        new FuelLineItem { Description = "SUPER", Qty = 1m, Price = 35.00m, PetroleoAmount = 4.70m, PetroleoCode = "1" },
+    };
+
+    private static JsonObject Build(IReadOnlyList<FuelLineItem> items, IReadOnlyList<FraseItem>? frases = null) =>
+        DteBuilder.BuildFactCombustible("12345678", "SELLER", "ADDR", DteBuilder.BuyerCf(), items, frases: frases);
+
+    private static List<(string?, string?)> FrasesOf(JsonObject payload)
+    {
+        var ai = payload["Seller"]!["AdditionlInfo"]!.AsArray();
+        var pairs = new List<(string?, string?)>();
+        for (int i = 0; i + 1 < ai.Count; i += 2)
+            pairs.Add(((string?)ai[i]!["Value"], (string?)ai[i + 1]!["Value"]));
+        return pairs;
+    }
+
+    private static (string?, string?, string?) TaxOf(JsonNode tax) =>
+        ((string?)tax["Code"], (string?)tax["TaxableAmount"], (string?)tax["Amount"]);
+
+    private static List<(string?, string?)> TotalTaxesOf(JsonObject payload) =>
+        payload["Totals"]!["TotalTaxes"]!["TotalTax"]!.AsArray()
+            .Select(t => ((string?)t!["Description"], (string?)t["Amount"])).ToList();
+
+    [Fact]
+    public void ExemptItem_CarriesBothTaxesAtZero()
+    {
+        var taxes = Build(ExemptItems())["Items"]![0]!["Taxes"]!["Tax"]!.AsArray();
+        Assert.Equal(("2", "75.000000", "0.000000"), TaxOf(taxes[0]!));
+        Assert.Equal(("18", "2.500000", "0.000000"), TaxOf(taxes[1]!));
+    }
+
+    [Fact]
+    public void ExemptTotals_IncludePetroleoAtZero()
+    {
+        var payload = Build(ExemptItems());
+        Assert.Equal(new (string?, string?)[] { ("IVA", "0.000000"), ("PETROLEO", "0.000000") }, TotalTaxesOf(payload));
+        Assert.Equal("130.000000", (string?)payload["Totals"]!["GrandTotal"]!["InvoiceTotal"]);
+    }
+
+    [Fact]
+    public void ExemptionFrases_FollowTheBaseFrase()
+    {
+        Assert.Equal(new (string?, string?)[] { ("1", "1"), ("9", "23"), ("4", "38") }, FrasesOf(Build(ExemptItems())));
+    }
+
+    [Fact]
+    public void ExemptionFrases_AddedToExplicitFrasesOnce()
+    {
+        var payload = Build(ExemptItems(), new[] { new FraseItem("1", "2"), new FraseItem("4", "38") });
+        Assert.Equal(new (string?, string?)[] { ("1", "2"), ("4", "38"), ("9", "23") }, FrasesOf(payload));
+    }
+
+    [Fact]
+    public void TaxedFuel_GetsNoExemptionFrases()
+    {
+        Assert.Equal(new (string?, string?)[] { ("1", "1") }, FrasesOf(Build(TaxedItems())));
+    }
+
+    [Fact]
+    public void ExemptFuel_MixedWithTaxedItem()
+    {
+        var payload = Build(ExemptItems().Append(Filtro()).ToArray());
+        var filtroTaxes = payload["Items"]![3]!["Taxes"]!["Tax"]!.AsArray();
+        Assert.Single(filtroTaxes);
+        Assert.Equal(("1", "50.000000", "6.000000"), TaxOf(filtroTaxes[0]!));
+        Assert.Equal(new (string?, string?)[] { ("IVA", "6.000000"), ("PETROLEO", "0.000000") }, TotalTaxesOf(payload));
+        Assert.Equal("186.000000", (string?)payload["Totals"]!["GrandTotal"]!["InvoiceTotal"]);
+    }
+
+    [Fact]
+    public void ExemptCode_IgnoresPetroleoAmount()
+    {
+        var payload = Build(new[]
+        {
+            new FuelLineItem { Description = "SUPER", Qty = 1m, Price = 30.00m, PetroleoCode = "18", PetroleoAmount = 4.70m },
+        });
+        Assert.Equal("0.000000", (string?)payload["Items"]![0]!["Taxes"]!["Tax"]![1]!["Amount"]);
+        Assert.Equal("30.000000", (string?)payload["Items"]![0]!["Totals"]!["TotalItem"]);
+    }
+
+    [Fact]
+    public void ExemptCode_NeedsNoPetroleoRate()
+    {
+        using var client = new DigifactClient(
+            new DigifactOptions { Taxid = "12345678", Username = "U", Password = "P" }, new HttpClient());
+        var items = new[] { new FuelLineItem { Description = "DIESEL", Price = 27.00m, PetroleoCode = "20" } };
+        var method = typeof(DigifactClient).GetMethod("ApplyPetroleoRates",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var resolved = (IReadOnlyList<FuelLineItem>)method.Invoke(client, new object[] { items })!;
+        Assert.Equal(0m, resolved[0].PetroleoAmount);
+    }
+
+    [Fact]
+    public void FuelExemption_AmountsAndLeyendas()
+    {
+        var exemption = FuelExemption.From(ExemptItems().Append(Filtro()));
+        Assert.Equal(17.19m, exemption.Idp);
+        Assert.Equal(15.60m, exemption.Iva);
+        Assert.Equal(new[]
+        {
+            "Monto de exención temporal de IDP aplicada: Q 17.19, según Decreto Número 22-2026",
+            "Monto de exención temporal de IVA aplicada: Q 15.60, según Decreto Número 22-2026",
+        }, exemption.Leyendas);
+    }
+
+    [Fact]
+    public void FuelExemption_WithoutExemptItems()
+    {
+        var exemption = FuelExemption.From(TaxedItems());
+        Assert.Equal((0m, 0m), (exemption.Iva, exemption.Idp));
+        Assert.Empty(exemption.Leyendas);
+    }
+}

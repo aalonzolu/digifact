@@ -18,7 +18,7 @@ import { gtNow, padTaxid, fmt, calcIva, calcFuelLine } from '../src/tax.js';
 import { DteResult } from '../src/client.js';
 import {
   buildFact, buildFesp, buildNdeb, buildNcre, buyerCf, buyerNit,
-  buildFactCombustible, resolveFuelFrases,
+  buildFactCombustible, resolveFuelFrases, fuelExemption,
 } from '../src/builder.js';
 
 const TAXID    = process.env.DIGIFACT_TAXID    || '';
@@ -267,6 +267,96 @@ describe('Unit: petroleo_rates auto-fill', () => {
       () => client._applyPetroleoRates([{ description: 'DIESEL', price: 30.70, petroleo_code: '4' }]),
       /petroleo_amount.*petroleo_rates|petroleo_rates.*petroleo_amount/i
     );
+  });
+
+  test('exempt code needs no rate', () => {
+    const client = new DigifactClient({ taxid: '12345678', username: 'U', password: 'P' });
+    const resolved = client._applyPetroleoRates([{ description: 'DIESEL', price: 27.00, petroleo_code: '20' }]);
+    assert.equal(resolved[0].petroleo_amount, undefined);
+  });
+});
+
+// ── Unit tests: Decreto 22-2026 fuel exemption ────────────────────────────────
+
+describe('Unit: fuel exemption', () => {
+  const exemptItems = () => [
+    { description: 'SUPER',   qty: 2.5, price: 30.00, petroleo_code: '18' },
+    { description: 'REGULAR', qty: 1,   price: 28.00, petroleo_code: '21' },
+    { description: 'DIESEL',  qty: 1,   price: 27.00, petroleo_code: '20' },
+  ];
+  const filtro = { description: 'FILTRO', qty: 1, price: 56.00 };
+  const build = (items, opts) => buildFactCombustible('12345678', 'SELLER', 'ADDR', buyerCf(), items, opts);
+  const frasesOf = (payload) => {
+    const ai = payload.Seller.AdditionlInfo;
+    const pairs = [];
+    for (let i = 0; i < ai.length; i += 2) pairs.push([ai[i].Value, ai[i + 1].Value]);
+    return pairs;
+  };
+
+  test('exempt item carries both taxes at zero', () => {
+    const [iva, petroleo] = build(exemptItems()).Items[0].Taxes.Tax;
+    assert.deepEqual(iva, { Code: '2', Description: 'IVA', TaxableAmount: '75.000000', Amount: '0.000000' });
+    assert.deepEqual(petroleo, { Code: '18', Description: 'PETROLEO', TaxableAmount: '2.500000', Amount: '0.000000' });
+  });
+
+  test('exempt totals include PETROLEO at zero', () => {
+    const totals = build(exemptItems()).Totals;
+    assert.deepEqual(totals.TotalTaxes.TotalTax, [
+      { Description: 'IVA', Amount: '0.000000' },
+      { Description: 'PETROLEO', Amount: '0.000000' },
+    ]);
+    assert.equal(totals.GrandTotal.InvoiceTotal, '130.000000');
+  });
+
+  test('exemption frases follow the base frase', () => {
+    assert.deepEqual(frasesOf(build(exemptItems())), [['1', '1'], ['9', '23'], ['4', '38']]);
+  });
+
+  test('exemption frases are added to explicit frases once', () => {
+    const payload = build(exemptItems(), { frases: [
+      { tipo_frase: '1', escenario: '2' },
+      { tipo_frase: '4', escenario: '38' },
+    ] });
+    assert.deepEqual(frasesOf(payload), [['1', '2'], ['4', '38'], ['9', '23']]);
+  });
+
+  test('taxed fuel gets no exemption frases', () => {
+    const payload = build([{ description: 'SUPER', qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1' }]);
+    assert.deepEqual(frasesOf(payload), [['1', '1']]);
+  });
+
+  test('exempt fuel mixed with a taxed item', () => {
+    const payload = build([...exemptItems(), filtro]);
+    assert.deepEqual(payload.Items[3].Taxes.Tax, [
+      { Code: '1', Description: 'IVA', TaxableAmount: '50.000000', Amount: '6.000000' },
+    ]);
+    assert.deepEqual(payload.Totals.TotalTaxes.TotalTax, [
+      { Description: 'IVA', Amount: '6.000000' },
+      { Description: 'PETROLEO', Amount: '0.000000' },
+    ]);
+    assert.equal(payload.Totals.GrandTotal.InvoiceTotal, '186.000000');
+  });
+
+  test('exempt code ignores petroleo_amount', () => {
+    const payload = build([{ description: 'SUPER', qty: 1, price: 30.00, petroleo_code: '18', petroleo_amount: 4.70 }]);
+    assert.equal(payload.Items[0].Taxes.Tax[1].Amount, '0.000000');
+    assert.equal(payload.Items[0].Totals.TotalItem, '30.000000');
+  });
+
+  test('fuelExemption amounts and leyendas', () => {
+    assert.deepEqual(fuelExemption([...exemptItems(), filtro]), {
+      iva: '15.60',
+      idp: '17.19',
+      leyendas: [
+        'Monto de exención temporal de IDP aplicada: Q 17.19, según Decreto Número 22-2026',
+        'Monto de exención temporal de IVA aplicada: Q 15.60, según Decreto Número 22-2026',
+      ],
+    });
+  });
+
+  test('fuelExemption without exempt items', () => {
+    const taxed = [{ description: 'SUPER', qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1' }];
+    assert.deepEqual(fuelExemption(taxed), { iva: '0.00', idp: '0.00', leyendas: [] });
   });
 });
 
@@ -585,8 +675,8 @@ if (SKIP) {
   describe('Integration: FACT Combustible', () => {
     test('emit FACT Combustible with mixed items', async () => {
       const result = await CLIENT.fuelInvoice('CF', [
-        { description: 'GASOLINA SUPER',    qty: 1, price: 35.00, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' },
-        { description: 'GASOLINA REGULAR',  qty: 1, price: 34.00, petroleo_amount: 4.60, petroleo_code: '2', type: 'Bien' },
+        { description: 'GASOLINA SUPER',    qty: 1, price: 30.00, petroleo_code: '18', type: 'Bien' },
+        { description: 'GASOLINA REGULAR',  qty: 1, price: 28.00, petroleo_code: '21', type: 'Bien' },
         { description: 'FILTRO DE ACEITE',  qty: 1, price: 45.00, type: 'Bien' },
       ]);
       assert.ok(result.authNumber);

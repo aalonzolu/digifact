@@ -167,6 +167,30 @@ $result2 = $client->fuelInvoice('CF', [
 | `petroleo_amount` | `float` | — | Impuesto PETROLEO por unidad (omitir para ítems sólo-IVA) |
 | `petroleo_code` | `string` | `'1'` | `'1'`=SUPER, `'2'`=REGULAR, `'4'`=DIESEL. Si se usa sin `petroleo_amount`, el código debe estar en `petroleo_rates` o se lanza `DigifactValidationException`. |
 
+### Exención temporal (Decreto 22-2026)
+
+Del 1 de octubre al 31 de diciembre de 2026, y después hasta agotar el inventario comprado exento, la
+gasolina superior, la regular y el diésel se facturan sin IVA ni IDP. Se activa por ítem con el código de
+unidad gravable exento: `'18'` superior, `'21'` regular con etanol, `'20'` diésel y `'19'` regular sin
+etanol (sólo importadores). `price` es el precio de bomba, ya sin impuestos, y `qty` va en galones. El SDK
+envía ambos impuestos en cero y agrega las frases `9/23` y `4/38`; no hace falta `petroleo_amount` ni `petroleo_rates`.
+
+```php
+use Digifact\Fel\DteBuilder;
+
+$items = [
+    ['description' => 'GASOLINA SUPER',   'qty' => 10, 'price' => 30.00, 'petroleo_code' => '18', 'unit_of_measure' => 'GAL'],
+    ['description' => 'GASOLINA REGULAR', 'qty' => 5,  'price' => 28.00, 'petroleo_code' => '21', 'unit_of_measure' => 'GAL'],
+    ['description' => 'DIESEL',           'qty' => 20, 'price' => 27.00, 'petroleo_code' => '20', 'unit_of_measure' => 'GAL'],
+];
+$result = $client->fuelInvoice('CF', $items);
+
+// Montos y leyendas obligatorias para un ticket propio (el PDF de Digifact ya las imprime)
+$exencion = DteBuilder::fuelExemption($items);   // ['idp' => '93.70', 'iva' => '117.60', 'leyendas' => [...]]
+```
+
+Los detalles y las advertencias están en el [README principal](../README.md#exención-temporal-de-combustibles-decreto-22-2026).
+
 ### Subsidio combustible {#subsidio-combustible}
 
 El subsidio a la gasolina y al diésel **finalizó el jueves 2 de julio de 2026 a las 24:00**, antes de lo previsto: el presupuesto de Q2 mil millones (Decreto 11-2026, reglamentado por el Acuerdo Gubernativo 64-2026) se agotó por la demanda. El SDK **nunca** envía frases de subsidio por su cuenta — no hay fecha de corte que valga para todos: una factura de combustible lleva únicamente la frase base que corresponde a la afiliación del emisor.

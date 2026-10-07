@@ -448,6 +448,11 @@ public sealed class DigifactClient : IDisposable
     /// Common <c>PetroleoCode</c> values: "1" = SUPER, "2" = REGULAR, "4" = DIESEL.
     /// </para>
     /// <para>
+    /// Fuel sold under the Decreto 22-2026 exemption uses <see cref="FuelExemptCodes"/> instead:
+    /// <c>Price</c> is the pump price without IVA or IDP, <c>PetroleoAmount</c> is not needed,
+    /// and frases 9/23 and 4/38 are added automatically.
+    /// </para>
+    /// <para>
     /// <paramref name="frases"/> is an explicit list of TipoFrase/Escenario pairs and is
     /// mutually exclusive with <paramref name="tipoFrase"/>/<paramref name="escenario"/>.
     /// The SAT fuel subsidy has ended, so nothing subsidy-related is ever sent on its own.
@@ -490,7 +495,7 @@ public sealed class DigifactClient : IDisposable
         var result = new List<FuelLineItem>(items.Count);
         foreach (var item in items)
         {
-            if (!string.IsNullOrEmpty(item.PetroleoCode) && item.PetroleoAmount == 0m)
+            if (!string.IsNullOrEmpty(item.PetroleoCode) && item.PetroleoAmount == 0m && !item.IsExempt)
             {
                 if (!_petroleoRates.TryGetValue(item.PetroleoCode, out var rate))
                     throw new DigifactValidationException(

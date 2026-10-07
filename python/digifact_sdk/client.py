@@ -21,6 +21,7 @@ from .builder import (
     build_rdon,
     build_reci,
     default_frase,
+    is_exempt_fuel_item,
     _build_buyer_cf,
     _build_buyer_nit,
     _build_buyer_cui,
@@ -549,6 +550,12 @@ class DigifactClient:
               ``"4"`` DIESEL (default ``"1"``).
 
             Items without ``petroleo_amount`` are treated as regular IVA-only items.
+
+            Fuel sold under the Decreto 22-2026 exemption uses the exempt
+            codes instead: ``"18"`` SUPER, ``"21"`` REGULAR with ethanol,
+            ``"20"`` DIESEL, ``"19"`` REGULAR for importers. ``price`` is the
+            pump price without IVA or IDP, ``petroleo_amount`` is not needed,
+            and frases 9/23 and 4/38 are added automatically.
         frases:
             Explicit list of ``{"tipo_frase": ..., "escenario": ...}`` dicts.
             Mutually exclusive with ``tipo_frase``/``escenario``.
@@ -615,7 +622,7 @@ class DigifactClient:
         resolved = []
         for item in items:
             code = item.get("petroleo_code")
-            if code is not None and "petroleo_amount" not in item:
+            if code is not None and "petroleo_amount" not in item and not is_exempt_fuel_item(item):
                 rate = self.petroleo_rates.get(str(code)) if self.petroleo_rates else None
                 if rate is None:
                     raise DigifactValidationError(

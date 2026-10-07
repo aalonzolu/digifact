@@ -213,6 +213,29 @@ var client = new DigifactClient(new DigifactOptions {
 });
 ```
 
+### Exención temporal (Decreto 22-2026)
+
+Del 1 de octubre al 31 de diciembre de 2026, y después hasta agotar el inventario comprado exento, la
+gasolina superior, la regular y el diésel se facturan sin IVA ni IDP. Se activa por ítem con el código de
+unidad gravable exento: `FuelExemptCodes.Super` superior, `FuelExemptCodes.RegularEthanol` regular con etanol, `FuelExemptCodes.Diesel` diésel y `FuelExemptCodes.RegularImporter` regular sin
+etanol (sólo importadores). `Price` es el precio de bomba, ya sin impuestos, y `Qty` va en galones. El SDK
+envía ambos impuestos en cero y agrega las frases `9/23` y `4/38`; no hace falta `PetroleoAmount` ni `PetroleoRates`.
+
+```csharp
+var items = new[]
+{
+    new FuelLineItem { Description = "GASOLINA SUPER",   Qty = 10m, Price = 30.00m, PetroleoCode = FuelExemptCodes.Super,          UnitOfMeasure = "GAL" },
+    new FuelLineItem { Description = "GASOLINA REGULAR", Qty = 5m,  Price = 28.00m, PetroleoCode = FuelExemptCodes.RegularEthanol, UnitOfMeasure = "GAL" },
+    new FuelLineItem { Description = "DIESEL",           Qty = 20m, Price = 27.00m, PetroleoCode = FuelExemptCodes.Diesel,         UnitOfMeasure = "GAL" },
+};
+var result = await client.FuelInvoiceAsync("CF", items);
+
+// Montos y leyendas obligatorias para un ticket propio (el PDF de Digifact ya las imprime)
+var exencion = FuelExemption.From(items);   // Idp = 93.70, Iva = 117.60, Leyendas
+```
+
+Los detalles y las advertencias están en el [README principal](../README.md#exención-temporal-de-combustibles-decreto-22-2026).
+
 ### Subsidio combustible
 
 El subsidio a la gasolina y al diésel **finalizó el jueves 2 de julio de 2026 a las 24:00**, antes de lo previsto: el presupuesto de Q2 mil millones (Decreto 11-2026, reglamentado por el Acuerdo Gubernativo 64-2026) se agotó por la demanda. El SDK **nunca** envía frases de subsidio por su cuenta — no hay fecha de corte que valga para todos.
