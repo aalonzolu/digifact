@@ -30,6 +30,7 @@ import {
   buildFactCombustible,
   defaultFrase,
   resolveFuelFrases,
+  isExemptFuelItem,
 } from './builder.js';
 
 const BASE_URLS = {
@@ -484,6 +485,11 @@ export class DigifactClient {
    * `petroleo_code` ("1"=SUPER, "2"=REGULAR, "4"=DIESEL; default "1").
    * Items without `petroleo_amount` are treated as regular IVA-only items.
    *
+   * Fuel sold under the Decreto 22-2026 exemption uses the exempt codes instead:
+   * "18"=SUPER, "21"=REGULAR with ethanol, "20"=DIESEL, "19"=REGULAR for importers.
+   * `price` is the pump price without IVA or IDP, `petroleo_amount` is not needed,
+   * and frases 9/23 and 4/38 are added automatically.
+   *
    * @param {string|object} buyer  "CF", NIT string, CUI object, or full buyer object.
    * @param {Array<object>} items
    * @param {object} [opts]
@@ -544,7 +550,7 @@ export class DigifactClient {
   _applyPetroleoRates(items) {
     return items.map(item => {
       const code = item.petroleo_code;
-      if (code != null && item.petroleo_amount == null) {
+      if (code != null && item.petroleo_amount == null && !isExemptFuelItem(item)) {
         const rate = this.petroleoRates[String(code)];
         if (rate == null) {
           throw new DigifactValidationError(

@@ -87,6 +87,18 @@ export function fmt(value, decimals = OUTPUT_DECIMALS) {
 }
 
 /**
+ * Sum of a × b over the given pairs, rounded half-up to `decimals` places.
+ * @param {Array<[string|number, string|number]>} pairs
+ * @param {number} decimals
+ * @returns {string}
+ */
+export function sumProducts(pairs, decimals = OUTPUT_DECIMALS) {
+  let total = 0n;
+  for (const [a, b] of pairs) total += toScaled(a) * toScaled(b);
+  return fromScaled(total / SCALE_FACTOR, decimals);
+}
+
+/**
  * Calculate IVA from an IVA-inclusive line total.
  * @param {string} lineTotal  As decimal string
  * @returns {[string, string]} [taxable_amount, iva_amount]

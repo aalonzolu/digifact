@@ -19,6 +19,62 @@ class DteBuilder
     private const ADENDA_CODE_ALT = 'FRONT-67C1-4545-BA1E-AA3C115E18D6';
     private const ALT_ADENDA_TYPES = ['NABN', 'RDON', 'RECI'];
 
+    // ── Exención temporal de combustibles (Decreto 22-2026) ──────────────────
+
+    public const FUEL_EXEMPT_SUPER = '18';
+    public const FUEL_EXEMPT_REGULAR_IMPORTER = '19';
+    public const FUEL_EXEMPT_DIESEL = '20';
+    public const FUEL_EXEMPT_REGULAR_ETHANOL = '21';
+
+    private const FUEL_EXEMPT_IDP_RATES = [
+        self::FUEL_EXEMPT_SUPER            => '4.70',
+        self::FUEL_EXEMPT_REGULAR_IMPORTER => '4.60',
+        self::FUEL_EXEMPT_DIESEL           => '1.30',
+        self::FUEL_EXEMPT_REGULAR_ETHANOL  => '4.14',
+    ];
+    private const FUEL_EXEMPTION_FRASES = [
+        ['tipo_frase' => '9', 'escenario' => '23'],
+        ['tipo_frase' => '4', 'escenario' => '38'],
+    ];
+    private const IVA_EXEMPT_CODE = '2';
+    private const IVA_RATE = '0.12';
+
+    public static function isExemptFuelItem(array $item): bool
+    {
+        return isset(self::FUEL_EXEMPT_IDP_RATES[(string)($item['petroleo_code'] ?? '')]);
+    }
+
+    /**
+     * Taxes the exempt fuel items would have paid without the Decreto 22-2026
+     * exemption. 'qty' must be in gallons: the IDP rates are per gallon.
+     *
+     * @param list<array> $items
+     * @return array{iva:string, idp:string, leyendas:list<string>}
+     */
+    public static function fuelExemption(array $items): array
+    {
+        $exempt      = array_values(array_filter($items, [self::class, 'isExemptFuelItem']));
+        $exemptTotal = '0';
+        $idp         = '0';
+        foreach ($exempt as $item) {
+            $qty         = (string)($item['qty'] ?? 1);
+            $rate        = self::FUEL_EXEMPT_IDP_RATES[(string)$item['petroleo_code']];
+            $exemptTotal = \bcadd($exemptTotal, \bcmul($qty, (string)$item['price'], 10), 10);
+            $idp         = \bcadd($idp, \bcmul($qty, $rate, 10), 10);
+        }
+        $iva = TaxHelper::roundHalfUp(\bcmul($exemptTotal, self::IVA_RATE, 10), 2);
+        $idp = TaxHelper::roundHalfUp($idp, 2);
+
+        return [
+            'iva'      => $iva,
+            'idp'      => $idp,
+            'leyendas' => $exempt === [] ? [] : [
+                "Monto de exención temporal de IDP aplicada: Q {$idp}, según Decreto Número 22-2026",
+                "Monto de exención temporal de IVA aplicada: Q {$iva}, según Decreto Número 22-2026",
+            ],
+        ];
+    }
+
     // ── Frases ───────────────────────────────────────────────────────────────
 
     private static function uniqFrases(array $frases): array
@@ -43,22 +99,28 @@ class DteBuilder
      * @param array|null  $frases       Explicit list or null.
      * @param string|null $tipoFrase    Base TipoFrase or null.
      * @param string|null $escenario    Base Escenario or null.
+     * @param bool        $exempt       Append the Decreto 22-2026 frases, mandatory with exempt fuel codes.
      * @return array<array{tipo_frase:string, escenario:string}>
      */
     public static function resolveFuelFrases(
         ?array $frases,
         ?string $tipoFrase,
-        ?string $escenario
+        ?string $escenario,
+        bool $exempt = false
     ): array {
         if ($frases !== null) {
             if (count($frases) === 0) {
                 throw new DigifactValidationException('frases must contain at least one tipo_frase/escenario pair');
             }
-            return self::uniqFrases($frases);
+            $result = $frases;
+        } else {
+            $result = [];
+            if ($tipoFrase !== null && $escenario !== null) {
+                $result[] = ['tipo_frase' => $tipoFrase, 'escenario' => $escenario];
+            }
         }
-        $result = [];
-        if ($tipoFrase !== null && $escenario !== null) {
-            $result[] = ['tipo_frase' => $tipoFrase, 'escenario' => $escenario];
+        if ($exempt) {
+            $result = array_merge($result, self::FUEL_EXEMPTION_FRASES);
         }
         return self::uniqFrases($result);
     }
@@ -91,7 +153,7 @@ class DteBuilder
             case 'RECI':
                 return ['4', '5'];
             case 'NABN':
-                return ['1', '1'];
+                return ['9', '17'];
             default:
                 // FACT, NCRE, NDEB, FCAM, FACT+CCA, FACT+combustible
                 if ($afi === 'PEQ') {
@@ -827,8 +889,9 @@ class DteBuilder
      * Build Items array for a combustible (fuel) invoice.
      *
      * Items with a 'petroleo_amount' key are treated as fuel items and receive two
-     * Tax entries (IVA + PETROLEO). Items without 'petroleo_amount' are treated as
-     * regular IVA-only items. Both types may coexist in the same invoice.
+     * Tax entries (IVA + PETROLEO). Items whose 'petroleo_code' is an exempt code
+     * (18-21) carry both taxes at zero. Items without 'petroleo_amount' are treated
+     * as regular IVA-only items. All types may coexist in the same invoice.
      *
      * @param list<array> $items
      * @return array{list<array>, string $grandTotal, string $totalIva, string $totalPetroleo}
@@ -856,7 +919,31 @@ class DteBuilder
                 'Discounts'     => null,
             ];
 
-            if (isset($item['petroleo_amount'])) {
+            if (self::isExemptFuelItem($item)) {
+                $calc = TaxHelper::calcLine($qty, $price, false);
+
+                $built['Qty']   = $calc['qty'];
+                $built['Price'] = $calc['price'];
+                $built['Taxes'] = [
+                    'Tax' => [
+                        [
+                            'Code'          => self::IVA_EXEMPT_CODE,
+                            'Description'   => 'IVA',
+                            'TaxableAmount' => $calc['lineTotal'],
+                            'Amount'        => $calc['iva'],
+                        ],
+                        [
+                            'Code'          => (string)$item['petroleo_code'],
+                            'Description'   => 'PETROLEO',
+                            'TaxableAmount' => $calc['qty'],
+                            'Amount'        => TaxHelper::fmt('0'),
+                        ],
+                    ],
+                ];
+                $built['Totals'] = ['TotalItem' => $calc['lineTotal']];
+
+                $grandTotal = \bcadd($grandTotal, $calc['lineTotal'], 10);
+            } elseif (isset($item['petroleo_amount'])) {
                 $petrolPerUnit = (string)$item['petroleo_amount'];
                 $petrolCode    = (string)($item['petroleo_code'] ?? '1');
 
@@ -935,6 +1022,11 @@ class DteBuilder
      * optionally 'petroleo_code' (SAT code: "1"=SUPER, "2"=REGULAR, "4"=DIESEL; default "1").
      * Items without 'petroleo_amount' are treated as regular IVA-only items.
      *
+     * Fuel sold under the Decreto 22-2026 exemption uses the exempt codes instead
+     * ("18"=SUPER, "21"=REGULAR with ethanol, "20"=DIESEL, "19"=REGULAR for
+     * importers): 'price' is the pump price without IVA or IDP, no
+     * 'petroleo_amount' is needed, and frases 9/23 and 4/38 are added.
+     *
      * $frases and $tipoFrase/$escenario are mutually exclusive.
      *
      * Example fuel item:
@@ -970,7 +1062,8 @@ class DteBuilder
         $tf = $tipoFrase ?? $defTf;
         $es = $escenario ?? $defEs;
 
-        $resolvedFrases = self::resolveFuelFrases($frases, $tf, $es);
+        $hasExemptFuel  = array_filter($items, [self::class, 'isExemptFuelItem']) !== [];
+        $resolvedFrases = self::resolveFuelFrases($frases, $tf, $es, $hasExemptFuel);
 
         // All frases go into Seller.AdditionlInfo as repeated pairs —
         // that is the field the API reads to generate <dte:Frases> in the certified XML.
@@ -981,7 +1074,7 @@ class DteBuilder
         );
 
         $totalTax = [['Description' => 'IVA', 'Amount' => $totalIva]];
-        if ((float)$totalPetroleo > 0.0) {
+        if ((float)$totalPetroleo > 0.0 || $hasExemptFuel) {
             $totalTax[] = ['Description' => 'PETROLEO', 'Amount' => $totalPetroleo];
         }
 

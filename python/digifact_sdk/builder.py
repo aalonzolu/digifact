@@ -7,7 +7,8 @@ Key intentional API typos preserved from the SAT/Digifact spec:
 """
 from __future__ import annotations
 
-from decimal import Decimal
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from .tax import LineCalc, FuelLineCalc, InvoiceTotals, fmt, gt_now
@@ -25,6 +26,67 @@ _ALT_ADENDA_TYPES = {"NABN", "RDON", "RECI"}
 
 def _adenda_code(doc_type: str) -> str:
     return ADENDA_CODE_ALT if doc_type in _ALT_ADENDA_TYPES else ADENDA_CODE_STD
+
+
+# ── Exención temporal de combustibles (Decreto 22-2026) ──────────────────────
+FUEL_EXEMPT_SUPER = "18"
+FUEL_EXEMPT_REGULAR_IMPORTER = "19"
+FUEL_EXEMPT_DIESEL = "20"
+FUEL_EXEMPT_REGULAR_ETHANOL = "21"
+
+_FUEL_EXEMPT_IDP_RATES = {
+    FUEL_EXEMPT_SUPER: Decimal("4.70"),
+    FUEL_EXEMPT_REGULAR_IMPORTER: Decimal("4.60"),
+    FUEL_EXEMPT_DIESEL: Decimal("1.30"),
+    FUEL_EXEMPT_REGULAR_ETHANOL: Decimal("4.14"),
+}
+_FUEL_EXEMPTION_FRASES = [
+    {"tipo_frase": "9", "escenario": "23"},
+    {"tipo_frase": "4", "escenario": "38"},
+]
+_IVA_EXEMPT_CODE = "2"
+_IVA_RATE = Decimal("0.12")
+_CENTS = Decimal("0.01")
+
+
+def is_exempt_fuel_item(item: dict) -> bool:
+    return str(item.get("petroleo_code", "")) in _FUEL_EXEMPT_IDP_RATES
+
+
+@dataclass(frozen=True)
+class FuelExemption:
+    """Taxes a fuel sale would have paid without the Decreto 22-2026 exemption."""
+
+    iva: Decimal
+    idp: Decimal
+
+    @property
+    def leyendas(self) -> list[str]:
+        if not self.iva and not self.idp:
+            return []
+        return [
+            f"Monto de exención temporal de IDP aplicada: Q {fmt(self.idp, 2)}, según Decreto Número 22-2026",
+            f"Monto de exención temporal de IVA aplicada: Q {fmt(self.iva, 2)}, según Decreto Número 22-2026",
+        ]
+
+
+def fuel_exemption(items: list[dict]) -> FuelExemption:
+    """Return the exempted IVA and IDP for the exempt fuel items in ``items``.
+
+    ``qty`` must be in gallons: the IDP rates are per gallon.
+    """
+    exempt_total = Decimal("0")
+    idp = Decimal("0")
+    for item in items:
+        if not is_exempt_fuel_item(item):
+            continue
+        qty = Decimal(str(item.get("qty", 1)))
+        exempt_total += qty * Decimal(str(item["price"]))
+        idp += qty * _FUEL_EXEMPT_IDP_RATES[str(item["petroleo_code"])]
+    return FuelExemption(
+        iva=(exempt_total * _IVA_RATE).quantize(_CENTS, rounding=ROUND_HALF_UP),
+        idp=idp.quantize(_CENTS, rounding=ROUND_HALF_UP),
+    )
 
 
 # ── Frases ───────────────────────────────────────────────────────────────────
@@ -59,19 +121,25 @@ def resolve_fuel_frases(
     frases: list[dict] | None,
     tipo_frase: str | None,
     escenario: str | None,
+    *,
+    exempt: bool = False,
 ) -> list[dict]:
     """Return the final deduplicated frases list for a fuel invoice.
 
     Called only after mutual-exclusivity validation (frases vs tipo_frase/escenario).
+    ``exempt`` appends the Decreto 22-2026 frases, mandatory with exempt fuel codes.
     """
     if frases is not None:
         if not frases:
             from .exceptions import DigifactValidationError
             raise DigifactValidationError("frases must contain at least one TipoFrase/Escenario pair")
-        return _uniq_frases(frases)
-    result: list[dict] = []
-    if tipo_frase is not None and escenario is not None:
-        result.append({"tipo_frase": tipo_frase, "escenario": escenario})
+        result = list(frases)
+    else:
+        result = []
+        if tipo_frase is not None and escenario is not None:
+            result.append({"tipo_frase": tipo_frase, "escenario": escenario})
+    if exempt:
+        result.extend(_FUEL_EXEMPTION_FRASES)
     return _uniq_frases(result)
 
 
@@ -91,7 +159,7 @@ def default_frase(doc_type: str, afiliacion: str = "GEN") -> tuple[str, str] | N
     if doc_type == "RECI":
         return ("4", "5")
     if doc_type == "NABN":
-        return ("1", "1")
+        return ("9", "17")
     # FACT, NCRE, NDEB, FCAM, FACT+CCA, FACT+combustible
     if afi == "PEQ":
         return ("2", "1")
@@ -667,6 +735,8 @@ def build_nabn(
     items: list[dict],
     *,
     afiliacion: str = "GEN",
+    tipo_frase: str | None = "9",
+    escenario: str | None = "17",
     amount_str: str = "",
     observaciones: str = "-",
     seller_email: str | None = None,
@@ -676,14 +746,13 @@ def build_nabn(
     issue_dt, _, _ = gt_now()
     line_items, totals = _build_items(items, taxable=False)
 
-    # NABN: uses TipoFrase=1, Escenario=1 in seller (matches smoke runner)
     seller = _build_seller(
         taxid,
         seller_name,
         seller_address,
         afiliacion=afiliacion,
-        tipo_frase="1",
-        escenario="1",
+        tipo_frase=tipo_frase,
+        escenario=escenario,
         frases=frases,
         email=seller_email,
     )
@@ -1057,8 +1126,9 @@ def _build_fuel_items(
     """Build Items list for a combustible (fuel) invoice.
 
     Items with 'petroleo_amount' are treated as fuel items and receive two
-    Tax entries (IVA + PETROLEO). Items without 'petroleo_amount' are treated
-    as regular IVA-only items. Both types may coexist in the same invoice.
+    Tax entries (IVA + PETROLEO). Items whose 'petroleo_code' is an exempt
+    code (18-21) carry both taxes at zero. Items without 'petroleo_amount' are
+    treated as regular IVA-only items. All types may coexist in the same invoice.
 
     Returns (line_items, grand_total_str, total_iva_str, total_petroleo_str).
     """
@@ -1083,7 +1153,31 @@ def _build_fuel_items(
             "Discounts":     None,
         }
 
-        if "petroleo_amount" in item:
+        if is_exempt_fuel_item(item):
+            lc = LineCalc(qty, price, taxable=False)
+
+            built["Qty"]   = lc.f_qty()
+            built["Price"] = lc.f_price()
+            built["Taxes"] = {
+                "Tax": [
+                    {
+                        "Code":          _IVA_EXEMPT_CODE,
+                        "Description":   "IVA",
+                        "TaxableAmount": lc.f_line_total(),
+                        "Amount":        lc.f_iva(),
+                    },
+                    {
+                        "Code":          str(item["petroleo_code"]),
+                        "Description":   "PETROLEO",
+                        "TaxableAmount": lc.f_qty(),
+                        "Amount":        fmt(0),
+                    },
+                ]
+            }
+            built["Totals"] = {"TotalItem": lc.f_line_total()}
+
+            grand_total += lc.line_total
+        elif "petroleo_amount" in item:
             petrol_per_unit = Decimal(str(item["petroleo_amount"]))
             petrol_code     = str(item.get("petroleo_code", "1"))
 
@@ -1176,6 +1270,11 @@ def build_fact_combustible(
     "4"=DIESEL; default "1"). Items without ``petroleo_amount`` are treated as
     regular IVA-only items and may coexist in the same invoice.
 
+    Fuel sold under the Decreto 22-2026 exemption uses the exempt codes instead
+    ("18"=SUPER, "21"=REGULAR with ethanol, "20"=DIESEL, "19"=REGULAR for
+    importers): ``price`` is the pump price without IVA or IDP, no
+    ``petroleo_amount`` is needed, and frases 9/23 and 4/38 are added.
+
     ``frases`` and ``tipo_frase``/``escenario`` are mutually exclusive.
 
     Example fuel item::
@@ -1201,7 +1300,8 @@ def build_fact_combustible(
     tf = tipo_frase if tipo_frase is not None else def_tf
     es = escenario if escenario is not None else def_es
 
-    resolved_frases = resolve_fuel_frases(frases, tf, es)
+    has_exempt_fuel = any(is_exempt_fuel_item(item) for item in items)
+    resolved_frases = resolve_fuel_frases(frases, tf, es, exempt=has_exempt_fuel)
 
     # All frases go into Seller.AdditionlInfo as repeated pairs —
     # that is the field the API reads to generate <dte:Frases> in the certified XML.
@@ -1215,7 +1315,7 @@ def build_fact_combustible(
     )
 
     total_tax: list[dict] = [{"Description": "IVA", "Amount": total_iva}]
-    if float(total_petroleo) > 0.0:
+    if float(total_petroleo) > 0.0 or has_exempt_fuel:
         total_tax.append({"Description": "PETROLEO", "Amount": total_petroleo})
 
     combustible_payload: dict[str, Any] = {

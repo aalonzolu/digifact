@@ -46,7 +46,7 @@ internal static class DteBuilder
             "FPEQ" => ("2", "1"),
             "RDON" => ("4", "4"),
             "RECI" => ("4", "5"),
-            "NABN" => ("1", "1"),
+            "NABN" => ("9", "17"),
             _ => af switch
             {
                 "PEQ" => ("2", "1"),
@@ -80,23 +80,37 @@ internal static class DteBuilder
     }
 
 
+    private const string IvaExemptCode = "2";
+
+    private static readonly FraseItem[] FuelExemptionFrases =
+    {
+        new("9", "23"),
+        new("4", "38"),
+    };
+
     /// <summary>
     /// Return the final deduplicated frases list for a fuel invoice.
     /// Called only after mutual-exclusivity validation.
+    /// <paramref name="exempt"/> appends the Decreto 22-2026 frases, mandatory with exempt fuel codes.
     /// </summary>
     internal static IReadOnlyList<FraseItem> ResolveFuelFrases(
         IReadOnlyList<FraseItem>? frases,
-        string? tipoFrase, string? escenario)
+        string? tipoFrase, string? escenario,
+        bool exempt = false)
     {
+        var result = new List<FraseItem>();
         if (frases is not null)
         {
             if (frases.Count == 0)
                 throw new DigifactValidationException("Frases must contain at least one TipoFrase/Escenario pair.");
-            return UniqFrases(frases);
+            result.AddRange(frases);
         }
-        var result = new List<FraseItem>();
-        if (tipoFrase is not null && escenario is not null)
+        else if (tipoFrase is not null && escenario is not null)
+        {
             result.Add(new FraseItem(tipoFrase, escenario));
+        }
+        if (exempt)
+            result.AddRange(FuelExemptionFrases);
         return UniqFrases(result);
     }
 
@@ -761,7 +775,36 @@ internal static class DteBuilder
                 ["Discounts"]     = (JsonNode?)null,
             };
 
-            if (item.PetroleoAmount > 0m)
+            if (item.IsExempt)
+            {
+                var calc = TaxHelper.CalcLine(item.Qty, item.Price, false, 0m);
+                built["Qty"]   = calc.Qty;
+                built["Price"] = calc.Price;
+                built["Taxes"] = new JsonObject
+                {
+                    ["Tax"] = new JsonArray
+                    {
+                        new JsonObject
+                        {
+                            ["Code"]          = IvaExemptCode,
+                            ["Description"]   = "IVA",
+                            ["TaxableAmount"] = calc.LineTotal,
+                            ["Amount"]        = calc.Iva,
+                        },
+                        new JsonObject
+                        {
+                            ["Code"]          = item.PetroleoCode,
+                            ["Description"]   = "PETROLEO",
+                            ["TaxableAmount"] = calc.Qty,
+                            ["Amount"]        = TaxHelper.Fmt(0m),
+                        },
+                    },
+                };
+                built["Totals"] = new JsonObject { ["TotalItem"] = calc.LineTotal };
+
+                grandTotal += decimal.Parse(calc.LineTotal, CultureInfo.InvariantCulture);
+            }
+            else if (item.PetroleoAmount > 0m)
             {
                 var calc = TaxHelper.CalcFuelLine(item.Qty, item.Price, item.PetroleoAmount);
                 built["Qty"]   = calc.Qty;
@@ -853,6 +896,11 @@ internal static class DteBuilder
     /// </para>
     ///
     /// <para>Common <c>PetroleoCode</c> values: "1" = SUPER, "2" = REGULAR, "4" = DIESEL.</para>
+    ///
+    /// <para>
+    /// Items with a <see cref="FuelExemptCodes"/> code are sold under the Decreto 22-2026
+    /// exemption: both taxes go at zero and frases 9/23 and 4/38 are added.
+    /// </para>
     /// </summary>
     internal static JsonObject BuildFactCombustible(
         string taxid, string sellerName, string sellerAddress,
@@ -870,7 +918,8 @@ internal static class DteBuilder
         var (isoNow, _, _) = TaxHelper.GtNow();
         var (lineItems, grandTotal, totalIva, totalPetroleo) = BuildFuelItems(items);
         var (tf, es) = ResolveFrase("FACT", afiliacion, tipoFrase, escenario);
-        var resolvedFrases = ResolveFuelFrases(frases, tf, es);
+        bool hasExemptFuel = items.Any(i => i.IsExempt);
+        var resolvedFrases = ResolveFuelFrases(frases, tf, es, hasExemptFuel);
         // All frases go into Seller.AdditionlInfo as repeated pairs — that is the field
         // the API reads to generate <dte:Frases> in the certified XML.
         var seller = BuildSeller(taxid, sellerName, sellerAddress, afiliacion,
@@ -880,7 +929,7 @@ internal static class DteBuilder
         {
             new JsonObject { ["Description"] = "IVA", ["Amount"] = totalIva },
         };
-        if (decimal.Parse(totalPetroleo, CultureInfo.InvariantCulture) > 0m)
+        if (decimal.Parse(totalPetroleo, CultureInfo.InvariantCulture) > 0m || hasExemptFuel)
             totalTaxArray.Add(new JsonObject { ["Description"] = "PETROLEO", ["Amount"] = totalPetroleo });
 
         return new JsonObject

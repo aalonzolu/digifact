@@ -578,6 +578,11 @@ class DigifactClient
      * 'petroleo_code' ("1"=SUPER, "2"=REGULAR, "4"=DIESEL; default "1").
      * Items without 'petroleo_amount' are treated as regular IVA-only items.
      *
+     * Fuel sold under the Decreto 22-2026 exemption uses the exempt codes instead:
+     * "18"=SUPER, "21"=REGULAR with ethanol, "20"=DIESEL, "19"=REGULAR for importers.
+     * 'price' is the pump price without IVA or IDP, 'petroleo_amount' is not needed,
+     * and frases 9/23 and 4/38 are added automatically.
+     *
      * @param array $items Each fuel item: description, qty, price, petroleo_amount, petroleo_code, type, unit_of_measure
      * @param array $opts  Options: tipo_frase, escenario, frases
      *
@@ -636,7 +641,7 @@ class DigifactClient
     {
         return array_map(function (array $item): array {
             $code = $item['petroleo_code'] ?? null;
-            if ($code !== null && !isset($item['petroleo_amount'])) {
+            if ($code !== null && !isset($item['petroleo_amount']) && !DteBuilder::isExemptFuelItem($item)) {
                 $rate = $this->petroleoRates[(string)$code] ?? null;
                 if ($rate === null) {
                     throw new DigifactValidationException(

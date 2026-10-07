@@ -1051,6 +1051,95 @@
               }
             }
           ]
+        },
+        {
+          "name": "FACT - Combustible exento de IVA e IDP (Decreto 22-2026)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v2/transform/nuc_json?TAXID={{taxid_padded}}&FORMAT={{certify_format}}&USERNAME={{username}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v2",
+                "transform",
+                "nuc_json"
+              ],
+              "query": [
+                {
+                  "key": "TAXID",
+                  "value": "{{taxid_padded}}",
+                  "disabled": false
+                },
+                {
+                  "key": "FORMAT",
+                  "value": "{{certify_format}}",
+                  "disabled": false
+                },
+                {
+                  "key": "USERNAME",
+                  "value": "{{username}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Factura de combustible bajo la exención temporal de IVA e IDP del Decreto 22-2026 (1 de octubre al 31 de diciembre de 2026, y después hasta agotar el inventario comprado exento).\n\nCada ítem de combustible lleva:\n- IVA con unidad gravable 2 (exento), TaxableAmount = total del ítem, Amount = 0\n- PETROLEO con la unidad gravable exenta (18 superior, 21 regular con etanol, 20 diésel, 19 regular sólo importadores), Amount = 0\n\nFrases obligatorias junto a la frase base: TipoFrase=9/CodigoEscenario=23 (IDP) y TipoFrase=4/CodigoEscenario=38 (IVA).\n\nPrice es el precio de bomba, ya sin IVA ni IDP. Los ítems gravados pueden convivir en la misma factura.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Version\": \"1.00\",\n  \"CountryCode\": \"{{country}}\",\n  \"Header\": {\n    \"DocType\": \"FACT\",\n    \"IssuedDateTime\": \"{{issue_datetime_gt}}\",\n    \"Currency\": \"{{currency}}\"\n  },\n  \"Seller\": {\n    \"TaxID\": \"{{seller_taxid}}\",\n    \"TaxIDAdditionalInfo\": [{\"Name\": \"AfiliacionIVA\", \"Data\": null, \"Value\": \"GEN\"}],\n    \"Name\": \"{{seller_name}}\",\n    \"BranchInfo\": {\n      \"Code\": \"{{seller_establishment_code}}\",\n      \"Name\": \"{{seller_establishment_name}}\",\n      \"AddressInfo\": {\n        \"Address\": \"{{seller_address}}\",\n        \"City\": \"{{seller_city}}\",\n        \"District\": \"{{seller_district}}\",\n        \"State\": \"{{seller_state}}\",\n        \"Country\": \"{{seller_country}}\"\n      }\n    },\n    \"AdditionlInfo\": [\n      {\"Name\": \"TipoFrase\", \"Data\": \"1\", \"Value\": \"1\"},\n      {\"Name\": \"Escenario\",  \"Data\": \"1\", \"Value\": \"1\"},\n      {\"Name\": \"TipoFrase\", \"Data\": \"2\", \"Value\": \"9\"},\n      {\"Name\": \"Escenario\",  \"Data\": \"2\", \"Value\": \"23\"},\n      {\"Name\": \"TipoFrase\", \"Data\": \"3\", \"Value\": \"4\"},\n      {\"Name\": \"Escenario\",  \"Data\": \"3\", \"Value\": \"38\"}\n    ]\n  },\n  \"Buyer\": {\n    \"TaxID\": \"{{buyer_cf_id}}\",\n    \"Name\": \"{{buyer_cf_name}}\",\n    \"AddressInfo\": {\n      \"Address\": \"{{buyer_cf_address}}\",\n      \"City\": \"{{buyer_cf_city}}\",\n      \"District\": \"{{buyer_cf_district}}\",\n      \"State\": \"{{buyer_cf_state}}\",\n      \"Country\": \"{{buyer_cf_country}}\"\n    }\n  },\n  \"Frases\": [\n    {\"TipoFrase\": \"1\", \"CodigoEscenario\": \"1\"},\n    {\"TipoFrase\": \"9\", \"CodigoEscenario\": \"23\"},\n    {\"TipoFrase\": \"4\", \"CodigoEscenario\": \"38\"}\n  ],\n  \"ThirdParties\": null,\n  \"Items\": [\n    {\n      \"Number\": \"1\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"GASOLINA SUPER\",\n      \"Qty\": \"1.000000\",\n      \"UnitOfMeasure\": \"UNI\",\n      \"Price\": \"30.000000\",\n      \"Discounts\": null,\n      \"Taxes\": {\n        \"Tax\": [\n          {\"Code\": \"2\", \"Description\": \"IVA\",      \"TaxableAmount\": \"30.000000\", \"Amount\": \"0.000000\"},\n          {\"Code\": \"18\", \"Description\": \"PETROLEO\", \"TaxableAmount\": \"1.000000\", \"Amount\": \"0.000000\"}\n        ]\n      },\n      \"Totals\": {\"TotalItem\": \"30.000000\"}\n    },\n    {\n      \"Number\": \"2\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"GASOLINA REGULAR\",\n      \"Qty\": \"1.000000\",\n      \"UnitOfMeasure\": \"UNI\",\n      \"Price\": \"28.000000\",\n      \"Discounts\": null,\n      \"Taxes\": {\n        \"Tax\": [\n          {\"Code\": \"2\", \"Description\": \"IVA\",      \"TaxableAmount\": \"28.000000\", \"Amount\": \"0.000000\"},\n          {\"Code\": \"21\", \"Description\": \"PETROLEO\", \"TaxableAmount\": \"1.000000\", \"Amount\": \"0.000000\"}\n        ]\n      },\n      \"Totals\": {\"TotalItem\": \"28.000000\"}\n    },\n    {\n      \"Number\": \"3\",\n      \"Codes\": null,\n      \"Type\": \"Bien\",\n      \"Description\": \"FILTRO DE ACEITE\",\n      \"Qty\": \"1.000000\",\n      \"UnitOfMeasure\": \"UNI\",\n      \"Price\": \"45.000000\",\n      \"Discounts\": null,\n      \"Taxes\": {\n        \"Tax\": [\n          {\"Code\": \"1\", \"Description\": \"IVA\", \"TaxableAmount\": \"40.178571\", \"Amount\": \"4.821429\"}\n        ]\n      },\n      \"Totals\": {\"TotalItem\": \"45.000000\"}\n    }\n  ],\n  \"Totals\": {\n    \"TotalTaxes\": {\n      \"TotalTax\": [\n        {\"Description\": \"IVA\",      \"Amount\": \"4.821429\"},\n        {\"Description\": \"PETROLEO\", \"Amount\": \"0.000000\"}\n      ]\n    },\n    \"GrandTotal\": {\"InvoiceTotal\": \"103.000000\"}\n  },\n  \"AdditionalDocumentInfo\": {\n    \"AdditionalInfo\": [{\n      \"Code\": \"00000013\",\n      \"Type\": \"ADENDA\",\n      \"AditionalInfo\": [\n        {\"Name\": \"VALIDAR_REFERENCIA_INTERNA\", \"Data\": null, \"Value\": \"NO_VALIDAR\"}\n      ]\n    }]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200-299', function () { pm.expect(pm.response.code).to.be.within(200, 299); });",
+                  "let body = {};",
+                  "try { body = pm.response.json(); } catch (e) { body = {}; }",
+                  "pm.test('DTE certificado (authNumber presente)', function () {",
+                  "  pm.expect(body.authNumber || body.Autorizacion || '').to.not.be.empty;",
+                  "});",
+                  "const auth = body.authNumber || body.Autorizacion || '';",
+                  "if (auth) pm.collectionVariables.set('last_authnumber', auth);",
+                  "if (body.batch) pm.collectionVariables.set('last_series', String(body.batch));",
+                  "if (body.serial) pm.collectionVariables.set('last_number', String(body.serial));",
+                  "if (body.issuedTimeStamp) pm.collectionVariables.set('last_issue_datetime', body.issuedTimeStamp);",
+                  "pm.collectionVariables.set('last_receiver_id', pm.collectionVariables.get('buyer_cf_id') || 'CF');",
+                  "const xmlB64 = body.responseData1 || '';",
+                  "if (xmlB64) {",
+                  "  let xml = '';",
+                  "  try { xml = atob(xmlB64); } catch (e) { xml = ''; }",
+                  "  pm.test('XML certificado contiene la frase de exención de IDP (9/23)', function () {",
+                  "    pm.expect(xml).to.match(/TipoFrase=\"9\" CodigoEscenario=\"23\"/);",
+                  "  });",
+                  "  pm.test('XML certificado contiene la frase de exención de IVA (4/38)', function () {",
+                  "    pm.expect(xml).to.match(/TipoFrase=\"4\" CodigoEscenario=\"38\"/);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
         }
       ]
     },

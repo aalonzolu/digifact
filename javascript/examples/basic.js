@@ -95,11 +95,11 @@ try {
 console.log('\nEmitting FACT Combustible...');
 try {
   const resultFuel = await client.fuelInvoice('CF', [
-    // Only petroleo_code needed when petroleo_rates was set at client init.
-    // petroleo_code: '1'=SUPER, '2'=REGULAR, '4'=DIESEL
-    { description: 'GASOLINA SUPER',    qty: 1, price: 35.00, petroleo_code: '1', type: 'Bien' },
-    { description: 'GASOLINA REGULAR',  qty: 1, price: 34.00, petroleo_code: '2', type: 'Bien' },
-    { description: 'GASOLINA DIESEL',   qty: 1, price: 32.00, petroleo_code: '4', type: 'Bien' },
+    // Decreto 22-2026 exempt codes: '18'=SUPER, '21'=REGULAR, '20'=DIESEL.
+    // price is the pump price, without IVA or IDP.
+    { description: 'GASOLINA SUPER',    qty: 1, price: 30.00, petroleo_code: '18', type: 'Bien' },
+    { description: 'GASOLINA REGULAR',  qty: 1, price: 28.00, petroleo_code: '21', type: 'Bien' },
+    { description: 'GASOLINA DIESEL',   qty: 1, price: 27.00, petroleo_code: '20', type: 'Bien' },
     // Regular items (no petroleo_code): IVA only
     { description: 'FILTRO DE ACEITE',   qty: 1, price: 45.00,  type: 'Bien' },
     { description: 'SET DE CANDELAS NGK', qty: 1, price: 400.00, type: 'Bien' },

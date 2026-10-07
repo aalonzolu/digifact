@@ -1,4 +1,12 @@
 """Digifact FEL Guatemala SDK — Python package."""
+from .builder import (
+    FUEL_EXEMPT_DIESEL,
+    FUEL_EXEMPT_REGULAR_ETHANOL,
+    FUEL_EXEMPT_REGULAR_IMPORTER,
+    FUEL_EXEMPT_SUPER,
+    FuelExemption,
+    fuel_exemption,
+)
 from .client import DigifactClient, DteResult
 from .exceptions import (
     DigifactApiError,
@@ -8,7 +16,7 @@ from .exceptions import (
     DigifactValidationError,
 )
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 __all__ = [
     "DigifactClient",
     "DteResult",
@@ -17,4 +25,10 @@ __all__ = [
     "DigifactApiError",
     "DigifactValidationError",
     "DigifactNitNotFoundError",
+    "FuelExemption",
+    "fuel_exemption",
+    "FUEL_EXEMPT_SUPER",
+    "FUEL_EXEMPT_REGULAR_IMPORTER",
+    "FUEL_EXEMPT_DIESEL",
+    "FUEL_EXEMPT_REGULAR_ETHANOL",
 ]

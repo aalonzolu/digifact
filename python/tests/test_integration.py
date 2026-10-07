@@ -53,24 +53,13 @@ def _client() -> "DigifactClient":
 
 
 # ── Upstream outages ─────────────────────────────────────────────────────────
-# Two Digifact/SAT-side failures currently have no SDK-side workaround. These
-# helpers match each one narrowly so that any *other* failure of the same test
-# still fails the run.
-
-NABN_FRASE_SKIP = (
-    "Upstream: Digifact rejects every NABN with FEL_RCP112 demanding frase "
-    "TipoFrase=9/CodigoEscenario=17, including payloads that carry exactly that "
-    "frase — the rule is unsatisfiable from the NUC JSON. Pending Digifact support."
-)
+# One SAT-side failure currently has no SDK-side workaround. The helper matches
+# it narrowly so that any *other* failure of the same test still fails the run.
 
 CANCEL_SAT_SKIP = (
     "Upstream: SAT's anulación transmission is failing (Codigo 9019, 'Error al "
     "transmitir anulación a SAT'). Certification is unaffected."
 )
-
-
-def _is_nabn_frase_rule(exc: Exception) -> bool:
-    return "FEL_RCP112" in str(exc)
 
 
 def _is_sat_cancel_outage(exc: Exception) -> bool:
@@ -172,6 +161,13 @@ class TestPetroleoRatesAutoFill(unittest.TestCase):
                 {"description": "DIESEL", "price": 30.70, "petroleo_code": "4"},
             ])
 
+    def test_exempt_code_needs_no_rate(self):
+        client = self._make_client()
+        resolved = client._apply_petroleo_rates([
+            {"description": "DIESEL", "price": 27.00, "petroleo_code": "20"},
+        ])
+        self.assertNotIn("petroleo_amount", resolved[0])
+
 
 class TestBuilderUnit(unittest.TestCase):
     def setUp(self):
@@ -205,6 +201,16 @@ class TestBuilderUnit(unittest.TestCase):
         self.assertEqual(payload["Seller"]["TaxID"], "12345678")
         self.assertIn("Items", payload)
         self.assertIsNotNone(payload["Items"][0]["Taxes"])
+
+    def test_nabn_carries_only_frase_9_17(self):
+        from digifact_sdk.builder import _build_buyer_cf, build_nabn, default_frase
+        self.assertEqual(default_frase("NABN"), ("9", "17"))
+        payload = build_nabn("12345678", "TEST", "CALLE", _build_buyer_cf(),
+                             [{"description": "X", "qty": 1, "price": 100.0}])
+        self.assertEqual(payload["Seller"]["AdditionlInfo"], [
+            {"Name": "TipoFrase", "Data": "1", "Value": "9"},
+            {"Name": "Escenario", "Data": "1", "Value": "17"},
+        ])
 
     def test_fesp_no_additionlinfo(self):
         seller = self._make_seller(doc_type="FESP")
@@ -425,6 +431,101 @@ class TestFuelFrases(unittest.TestCase):
             )
 
 
+class TestFuelExemption(unittest.TestCase):
+    """Decreto 22-2026: exempt fuel codes 18-21."""
+
+    def _buyer(self):
+        return {"TaxID": "CF", "Name": "CONSUMIDOR FINAL",
+                "AddressInfo": {"Address": "CIUDAD", "City": "01010",
+                                "District": "GUATEMALA", "State": "GUATEMALA", "Country": "GT"}}
+
+    def _exempt_items(self):
+        return [
+            {"description": "SUPER",   "qty": 2.5, "price": 30.00, "petroleo_code": "18"},
+            {"description": "REGULAR", "qty": 1,   "price": 28.00, "petroleo_code": "21"},
+            {"description": "DIESEL",  "qty": 1,   "price": 27.00, "petroleo_code": "20"},
+        ]
+
+    def _build(self, items, **kwargs):
+        from digifact_sdk.builder import build_fact_combustible
+        return build_fact_combustible("12345678", "SELLER", "ADDR",
+                                      buyer=self._buyer(), items=items, **kwargs)
+
+    def _frases(self, payload):
+        ai = payload["Seller"]["AdditionlInfo"]
+        return [(ai[i]["Value"], ai[i + 1]["Value"]) for i in range(0, len(ai), 2)]
+
+    def test_exempt_item_carries_both_taxes_at_zero(self):
+        iva, petroleo = self._build(self._exempt_items())["Items"][0]["Taxes"]["Tax"]
+        self.assertEqual(iva, {"Code": "2", "Description": "IVA",
+                               "TaxableAmount": "75.000000", "Amount": "0.000000"})
+        self.assertEqual(petroleo, {"Code": "18", "Description": "PETROLEO",
+                                    "TaxableAmount": "2.500000", "Amount": "0.000000"})
+
+    def test_exempt_totals_include_petroleo_at_zero(self):
+        totals = self._build(self._exempt_items())["Totals"]
+        self.assertEqual(totals["TotalTaxes"]["TotalTax"], [
+            {"Description": "IVA", "Amount": "0.000000"},
+            {"Description": "PETROLEO", "Amount": "0.000000"},
+        ])
+        self.assertEqual(totals["GrandTotal"]["InvoiceTotal"], "130.000000")
+
+    def test_exemption_frases_follow_the_base_frase(self):
+        self.assertEqual(self._frases(self._build(self._exempt_items())),
+                         [("1", "1"), ("9", "23"), ("4", "38")])
+
+    def test_exemption_frases_added_to_explicit_frases_once(self):
+        payload = self._build(self._exempt_items(), frases=[
+            {"tipo_frase": "1", "escenario": "2"},
+            {"tipo_frase": "4", "escenario": "38"},
+        ])
+        self.assertEqual(self._frases(payload), [("1", "2"), ("4", "38"), ("9", "23")])
+
+    def test_taxed_fuel_gets_no_exemption_frases(self):
+        payload = self._build([{"description": "SUPER", "qty": 1, "price": 35.00,
+                                "petroleo_amount": 4.70, "petroleo_code": "1"}])
+        self.assertEqual(self._frases(payload), [("1", "1")])
+
+    def test_exempt_fuel_mixed_with_taxed_item(self):
+        payload = self._build(self._exempt_items() + [
+            {"description": "FILTRO", "qty": 1, "price": 56.00},
+        ])
+        filtro_tax = payload["Items"][3]["Taxes"]["Tax"]
+        self.assertEqual(filtro_tax, [{"Code": "1", "Description": "IVA",
+                                       "TaxableAmount": "50.000000", "Amount": "6.000000"}])
+        totals = payload["Totals"]
+        self.assertEqual(totals["TotalTaxes"]["TotalTax"], [
+            {"Description": "IVA", "Amount": "6.000000"},
+            {"Description": "PETROLEO", "Amount": "0.000000"},
+        ])
+        self.assertEqual(totals["GrandTotal"]["InvoiceTotal"], "186.000000")
+
+    def test_exempt_code_ignores_petroleo_amount(self):
+        payload = self._build([{"description": "SUPER", "qty": 1, "price": 30.00,
+                                "petroleo_code": "18", "petroleo_amount": 4.70}])
+        self.assertEqual(payload["Items"][0]["Taxes"]["Tax"][1]["Amount"], "0.000000")
+        self.assertEqual(payload["Items"][0]["Totals"]["TotalItem"], "30.000000")
+
+    def test_fuel_exemption_amounts(self):
+        from digifact_sdk import fuel_exemption
+        exemption = fuel_exemption(self._exempt_items() + [
+            {"description": "FILTRO", "qty": 1, "price": 56.00},
+        ])
+        self.assertEqual(exemption.idp, Decimal("17.19"))
+        self.assertEqual(exemption.iva, Decimal("15.60"))
+        self.assertEqual(exemption.leyendas, [
+            "Monto de exención temporal de IDP aplicada: Q 17.19, según Decreto Número 22-2026",
+            "Monto de exención temporal de IVA aplicada: Q 15.60, según Decreto Número 22-2026",
+        ])
+
+    def test_fuel_exemption_without_exempt_items(self):
+        from digifact_sdk import fuel_exemption
+        exemption = fuel_exemption([{"description": "SUPER", "qty": 1, "price": 35.00,
+                                     "petroleo_amount": 4.70, "petroleo_code": "1"}])
+        self.assertEqual((exemption.iva, exemption.idp), (Decimal("0.00"), Decimal("0.00")))
+        self.assertEqual(exemption.leyendas, [])
+
+
 # ── Integration tests (shared client, 1 login total) ─────────────────────────
 
 @unittest.skipIf(SKIP, SKIP_REASON)
@@ -566,16 +667,11 @@ class TestNDEBandNCRE(unittest.TestCase):
 @unittest.skipIf(SKIP, SKIP_REASON)
 class TestNABN(unittest.TestCase):
     def test_nabn(self):
-        try:
-            result = _client().invoice(
-                "77454820",
-                [{"description": "RETENEDOR BLANCO", "qty": 1, "price": 100.00, "type": "Bien"}],
-                doc_type="NABN",
-            )
-        except DigifactError as exc:
-            if _is_nabn_frase_rule(exc):
-                self.skipTest(NABN_FRASE_SKIP)
-            raise
+        result = _client().invoice(
+            "77454820",
+            [{"description": "RETENEDOR BLANCO", "qty": 1, "price": 100.00, "type": "Bien"}],
+            doc_type="NABN",
+        )
         self.assertTrue(result.auth_number)
         print(f"\n  NABN auth: {result.auth_number}")
 
@@ -697,10 +793,10 @@ class TestFuelInvoice(unittest.TestCase):
         result = _client().fuel_invoice(
             "CF",
             [
-                {"description": "GASOLINA SUPER",   "qty": 1, "price": 35.00,
-                 "petroleo_amount": 4.70, "petroleo_code": "1", "type": "Bien"},
-                {"description": "GASOLINA REGULAR",  "qty": 1, "price": 34.00,
-                 "petroleo_amount": 4.60, "petroleo_code": "2", "type": "Bien"},
+                {"description": "GASOLINA SUPER",   "qty": 1, "price": 30.00,
+                 "petroleo_code": "18", "type": "Bien"},
+                {"description": "GASOLINA REGULAR",  "qty": 1, "price": 28.00,
+                 "petroleo_code": "21", "type": "Bien"},
                 {"description": "FILTRO DE ACEITE",  "qty": 1, "price": 45.00, "type": "Bien"},
             ],
         )

@@ -191,7 +191,7 @@ configurar nada en el caso común.
 | FPEQ        | PEQ        | `2`       | `1`             | Pequeño contribuyente |
 | RDON        | cualquiera | `4`       | `4`             | Donaciones |
 | RECI        | cualquiera | `4`       | `5`             | Recibos (universidades) |
-| NABN        | cualquiera | `1`       | `1`             | Abonos |
+| NABN        | cualquiera | `9`       | `17`            | Abonos |
 | FACT / FCAM / NCRE / NDEB | **GEN** | `1` | `1` | Por defecto: ISR **régimen sobre utilidades trimestrales** |
 | FACT / FCAM / NCRE / NDEB | PEQ | `2` | `1` | |
 | FACT / FCAM / NCRE / NDEB | EXE | `4` | `1` | Exento |
@@ -212,6 +212,29 @@ var client = new DigifactClient(new DigifactOptions {
     Frases = new[] { new FraseItem("1", "2") },  // ISR régimen opcional
 });
 ```
+
+### Exención temporal (Decreto 22-2026)
+
+Del 1 de octubre al 31 de diciembre de 2026, y después hasta agotar el inventario comprado exento, la
+gasolina superior, la regular y el diésel se facturan sin IVA ni IDP. Se activa por ítem con el código de
+unidad gravable exento: `FuelExemptCodes.Super` superior, `FuelExemptCodes.RegularEthanol` regular con etanol, `FuelExemptCodes.Diesel` diésel y `FuelExemptCodes.RegularImporter` regular sin
+etanol (sólo importadores). `Price` es el precio de bomba, ya sin impuestos, y `Qty` va en galones. El SDK
+envía ambos impuestos en cero y agrega las frases `9/23` y `4/38`; no hace falta `PetroleoAmount` ni `PetroleoRates`.
+
+```csharp
+var items = new[]
+{
+    new FuelLineItem { Description = "GASOLINA SUPER",   Qty = 10m, Price = 30.00m, PetroleoCode = FuelExemptCodes.Super,          UnitOfMeasure = "GAL" },
+    new FuelLineItem { Description = "GASOLINA REGULAR", Qty = 5m,  Price = 28.00m, PetroleoCode = FuelExemptCodes.RegularEthanol, UnitOfMeasure = "GAL" },
+    new FuelLineItem { Description = "DIESEL",           Qty = 20m, Price = 27.00m, PetroleoCode = FuelExemptCodes.Diesel,         UnitOfMeasure = "GAL" },
+};
+var result = await client.FuelInvoiceAsync("CF", items);
+
+// Montos y leyendas obligatorias para un ticket propio (el PDF de Digifact ya las imprime)
+var exencion = FuelExemption.From(items);   // Idp = 93.70, Iva = 117.60, Leyendas
+```
+
+Los detalles y las advertencias están en el [README principal](../README.md#exención-temporal-de-combustibles-decreto-22-2026).
 
 ### Subsidio combustible
 

@@ -251,6 +251,32 @@ result = client.fuel_invoice(
 | `petroleo_amount` | `float\|Decimal` | — | Impuesto PETROLEO por unidad; omitir para ítems sólo-IVA |
 | `petroleo_code` | `str` | `"1"` | `"1"`=SUPER, `"2"`=REGULAR, `"4"`=DIESEL. Obligatorio cuando se omite `petroleo_amount` y `petroleo_rates` está configurado; lanza `DigifactValidationError` si el código no está en el diccionario de tarifas. |
 
+### Exención temporal (Decreto 22-2026)
+
+Del 1 de octubre al 31 de diciembre de 2026, y después hasta agotar el inventario comprado exento, la
+gasolina superior, la regular y el diésel se facturan sin IVA ni IDP. Se activa por ítem con el código de
+unidad gravable exento: `"18"` superior, `"21"` regular con etanol, `"20"` diésel y `"19"` regular sin
+etanol (sólo importadores). `price` es el precio de bomba, ya sin impuestos, y `qty` va en galones. El SDK
+envía ambos impuestos en cero y agrega las frases `9/23` y `4/38`; no hace falta `petroleo_amount` ni `petroleo_rates`.
+
+```python
+from digifact_sdk import fuel_exemption
+
+items = [
+    {"description": "GASOLINA SUPER",   "qty": 10, "price": 30.00, "petroleo_code": "18", "unit_of_measure": "GAL"},
+    {"description": "GASOLINA REGULAR", "qty": 5,  "price": 28.00, "petroleo_code": "21", "unit_of_measure": "GAL"},
+    {"description": "DIESEL",           "qty": 20, "price": 27.00, "petroleo_code": "20", "unit_of_measure": "GAL"},
+]
+result = client.fuel_invoice("CF", items)
+
+# Montos y leyendas obligatorias para un ticket propio (el PDF de Digifact ya las imprime)
+exencion = fuel_exemption(items)
+print(exencion.idp, exencion.iva)   # 93.70 117.60
+print(exencion.leyendas)
+```
+
+Los detalles y las advertencias están en el [README principal](../README.md#exención-temporal-de-combustibles-decreto-22-2026).
+
 ### Subsidio combustible
 
 El subsidio a la gasolina y al diésel **finalizó el jueves 2 de julio de 2026 a las 24:00**, antes de lo
@@ -291,7 +317,7 @@ configurar nada en el caso común.
 | FPEQ        | PEQ        | `2`       | `1`             | Pequeño contribuyente |
 | RDON        | cualquiera | `4`       | `4`             | Donaciones |
 | RECI        | cualquiera | `4`       | `5`             | Recibos (universidades) |
-| NABN        | cualquiera | `1`       | `1`             | Abonos |
+| NABN        | cualquiera | `9`       | `17`            | Abonos |
 | FACT / FCAM / NCRE / NDEB | **GEN** | `1` | `1` | Por defecto: ISR **régimen sobre utilidades trimestrales** |
 | FACT / FCAM / NCRE / NDEB | PEQ | `2` | `1` | |
 | FACT / FCAM / NCRE / NDEB | EXE | `4` | `1` | Exento |

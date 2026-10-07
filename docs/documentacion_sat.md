@@ -722,6 +722,27 @@ SAT dedica secciones completas a:
 - Bebidas No Alcohólicas
 - Tarifa Portuaria
 
+#### Exención temporal de combustibles (Decreto 22-2026)
+
+Del 1 de octubre al 31 de diciembre de 2026, y después hasta agotar el inventario comprado exento, la gasolina superior, la regular y el diésel se facturan sin IVA ni IDP. Aplica a FACT, FCAM, NCRE, NDEB, FPEQ y FCAP.
+
+| Impuesto | `CodigoUnidadGravable` | Significado |
+|---|:---:|---|
+| IVA | `2` | Exento. `MontoGravable` = total del ítem, `MontoImpuesto` = 0 |
+| PETROLEO | `18` | Gasolina superior exenta |
+| PETROLEO | `19` | Gasolina regular exenta, sólo importadores (`FEL_RCP203` si lo usa otro emisor) |
+| PETROLEO | `20` | Diésel exento |
+| PETROLEO | `21` | Gasolina regular con etanol exenta |
+
+Reglas observadas en el ambiente de pruebas:
+- los códigos 18 a 21 exigen las frases `TipoFrase=9/CodigoEscenario=23` (IDP) y `TipoFrase=4/CodigoEscenario=38` (IVA), además de la frase base;
+- un ítem con PETROLEO 18 a 21 debe llevar el IVA con unidad gravable `2`;
+- `TotalImpuestos` incluye IVA y PETROLEO aunque ambos sean 0;
+- dentro de la vigencia, el PETROLEO de los códigos gravados no puede llevar `MontoImpuesto` mayor a 0;
+- los ítems gravados (IVA unidad gravable `1`) pueden convivir en el mismo DTE.
+
+El XML no lleva el monto exonerado. La representación gráfica debe mostrarlo con las leyendas `Monto de exención temporal de IDP aplicada: Q XXXX, según Decreto Número 22-2026` y su equivalente para IVA, donde `XXXX` es lo que se habría pagado: 12% del total exento para el IVA y, para el IDP, Q4.70 por galón de superior, Q4.14 de regular con etanol, Q4.60 de regular sin etanol y Q1.30 de diésel.
+
 ### 8.7 Regla de cálculo del IVA
 
 Para operaciones gravadas con IVA:

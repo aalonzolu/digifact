@@ -7,7 +7,7 @@
  *   - AditionalInfo         (missing 'd')
  */
 
-import { gtNow, calcLine, calcFuelLine, fmt } from './tax.js';
+import { gtNow, calcLine, calcFuelLine, fmt, sumProducts } from './tax.js';
 
 const NO_IVA_TYPES = new Set(['FPEQ', 'NABN', 'RDON', 'RECI']);
 const ADENDA_CODE_STD = 'FRONT-263C-444B-89BA-6F87EC1330C0';
@@ -16,6 +16,49 @@ const ALT_ADENDA_TYPES = new Set(['NABN', 'RDON', 'RECI']);
 
 function adendaCode(docType) {
   return ALT_ADENDA_TYPES.has(docType) ? ADENDA_CODE_ALT : ADENDA_CODE_STD;
+}
+
+// ── Exención temporal de combustibles (Decreto 22-2026) ──────────────────────
+
+export const FUEL_EXEMPT_SUPER = '18';
+export const FUEL_EXEMPT_REGULAR_IMPORTER = '19';
+export const FUEL_EXEMPT_DIESEL = '20';
+export const FUEL_EXEMPT_REGULAR_ETHANOL = '21';
+
+const FUEL_EXEMPT_IDP_RATES = {
+  [FUEL_EXEMPT_SUPER]: '4.70',
+  [FUEL_EXEMPT_REGULAR_IMPORTER]: '4.60',
+  [FUEL_EXEMPT_DIESEL]: '1.30',
+  [FUEL_EXEMPT_REGULAR_ETHANOL]: '4.14',
+};
+const FUEL_EXEMPTION_FRASES = [
+  { tipo_frase: '9', escenario: '23' },
+  { tipo_frase: '4', escenario: '38' },
+];
+const IVA_EXEMPT_CODE = '2';
+const IVA_RATE = '0.12';
+
+export function isExemptFuelItem(item) {
+  return Object.hasOwn(FUEL_EXEMPT_IDP_RATES, String(item.petroleo_code ?? ''));
+}
+
+/**
+ * Taxes the exempt fuel items in `items` would have paid without the
+ * Decreto 22-2026 exemption. `qty` must be in gallons: the IDP rates are per gallon.
+ *
+ * @param {Array<object>} items
+ * @returns {{iva: string, idp: string, leyendas: string[]}}
+ */
+export function fuelExemption(items) {
+  const exempt = items.filter(isExemptFuelItem);
+  const exemptTotal = sumProducts(exempt.map(item => [item.qty ?? 1, item.price]), 10);
+  const iva = sumProducts([[exemptTotal, IVA_RATE]], 2);
+  const idp = sumProducts(exempt.map(item => [item.qty ?? 1, FUEL_EXEMPT_IDP_RATES[String(item.petroleo_code)]]), 2);
+  const leyendas = exempt.length === 0 ? [] : [
+    `Monto de exención temporal de IDP aplicada: Q ${idp}, según Decreto Número 22-2026`,
+    `Monto de exención temporal de IVA aplicada: Q ${iva}, según Decreto Número 22-2026`,
+  ];
+  return { iva, idp, leyendas };
 }
 
 /**
@@ -33,7 +76,7 @@ export function defaultFrase(docType, afiliacion = 'GEN') {
   if (docType === 'FPEQ') return ['2', '1'];
   if (docType === 'RDON') return ['4', '4'];
   if (docType === 'RECI') return ['4', '5'];
-  if (docType === 'NABN') return ['1', '1'];
+  if (docType === 'NABN') return ['9', '17'];
   // FACT, NCRE, NDEB, FCAM, FACT+CCA, FACT+combustible
   if (afi === 'PEQ') return ['2', '1'];
   if (afi === 'EXE') return ['4', '1'];
@@ -70,17 +113,23 @@ export function uniqFrases(frases) {
  * @param {Array|null} frases  Explicit list or null.
  * @param {string|null} tipoFrase  Legacy base TipoFrase or null.
  * @param {string|null} escenario  Legacy base Escenario or null.
+ * @param {object} [opts]
+ * @param {boolean} [opts.exempt=false]  Append the Decreto 22-2026 frases,
+ *   mandatory with exempt fuel codes.
  * @returns {Array<{tipo_frase:string, escenario:string}>}
  */
-export function resolveFuelFrases(frases, tipoFrase, escenario) {
+export function resolveFuelFrases(frases, tipoFrase, escenario, { exempt = false } = {}) {
+  let result;
   if (frases != null) {
     if (frases.length === 0) throw new Error('frases must contain at least one {tipo_frase, escenario} pair');
-    return uniqFrases(frases);
+    result = [...frases];
+  } else {
+    result = [];
+    if (tipoFrase != null && escenario != null) {
+      result.push({ tipo_frase: tipoFrase, escenario });
+    }
   }
-  const result = [];
-  if (tipoFrase != null && escenario != null) {
-    result.push({ tipo_frase: tipoFrase, escenario });
-  }
+  if (exempt) result.push(...FUEL_EXEMPTION_FRASES);
   return uniqFrases(result);
 }
 
@@ -604,7 +653,21 @@ function buildFuelItems(items) {
       Discounts: null,
     };
 
-    if (item.petroleo_amount !== undefined && item.petroleo_amount !== null) {
+    if (isExemptFuelItem(item)) {
+      const calc = calcLine(qty, price, false);
+
+      built.Qty   = calc.qty;
+      built.Price = calc.price;
+      built.Taxes = {
+        Tax: [
+          { Code: IVA_EXEMPT_CODE,            Description: 'IVA',      TaxableAmount: calc.lineTotal, Amount: calc.iva },
+          { Code: String(item.petroleo_code), Description: 'PETROLEO', TaxableAmount: calc.qty,       Amount: fmt(0) },
+        ],
+      };
+      built.Totals = { TotalItem: calc.lineTotal };
+
+      grandTotal = addDecimalStrings(null, calc.lineTotal, grandTotal);
+    } else if (item.petroleo_amount !== undefined && item.petroleo_amount !== null) {
       const petrolCode = String(item.petroleo_code ?? '1');
       const calc = calcFuelLine(qty, price, item.petroleo_amount);
 
@@ -665,6 +728,11 @@ function buildFuelAdenda() {
  * optionally `petroleo_code` ("1"=SUPER, "2"=REGULAR, "4"=DIESEL; default "1").
  * Items without `petroleo_amount` are treated as regular IVA-only items.
  *
+ * Fuel sold under the Decreto 22-2026 exemption uses the exempt codes instead
+ * ("18"=SUPER, "21"=REGULAR with ethanol, "20"=DIESEL, "19"=REGULAR for
+ * importers): `price` is the pump price without IVA or IDP, no
+ * `petroleo_amount` is needed, and frases 9/23 and 4/38 are added.
+ *
  * @example
  * // Fuel item:
  * { description: 'GASOLINA SUPER', qty: 1, price: 30.30, petroleo_amount: 4.70, petroleo_code: '1', type: 'Bien' }
@@ -684,13 +752,14 @@ export function buildFactCombustible(taxid, sellerName, sellerAddress, buyer, it
   const [isoNow] = gtNow();
   const { lineItems, grandTotal, totalIva, totalPetroleo } = buildFuelItems(items);
   const [tf, es] = resolveFrase('FACT', afiliacion, tipoFrase, escenario);
-  const resolvedFrases = resolveFuelFrases(frases, tf, es);
+  const hasExemptFuel = items.some(isExemptFuelItem);
+  const resolvedFrases = resolveFuelFrases(frases, tf, es, { exempt: hasExemptFuel });
   // All frases go into Seller.AdditionlInfo as repeated pairs —
   // that is the field the API reads to generate <dte:Frases> in the certified XML.
   const seller = buildSeller(taxid, sellerName, sellerAddress, { afiliacion, frases: resolvedFrases, email: sellerEmail });
 
   const totalTax = [{ Description: 'IVA', Amount: totalIva }];
-  if (parseFloat(totalPetroleo) > 0) {
+  if (parseFloat(totalPetroleo) > 0 || hasExemptFuel) {
     totalTax.push({ Description: 'PETROLEO', Amount: totalPetroleo });
   }
 
