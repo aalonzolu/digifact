@@ -11,12 +11,19 @@ class DigifactException extends \RuntimeException
 {
     protected ?int $apiCode;
     protected array $raw;
+    protected bool $retryable;
 
-    public function __construct(string $message, ?int $apiCode = null, array $raw = [], \Throwable $previous = null)
-    {
+    public function __construct(
+        string $message,
+        ?int $apiCode = null,
+        array $raw = [],
+        ?\Throwable $previous = null,
+        bool $retryable = false
+    ) {
         parent::__construct($message, 0, $previous);
         $this->apiCode = $apiCode;
         $this->raw = $raw;
+        $this->retryable = $retryable;
     }
 
     public function getApiCode(): ?int
@@ -27,6 +34,14 @@ class DigifactException extends \RuntimeException
     public function getRaw(): array
     {
         return $this->raw;
+    }
+
+    /**
+     * Whether the same request may succeed if sent again (HTTP 5xx).
+     */
+    public function isRetryable(): bool
+    {
+        return $this->retryable;
     }
 }
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -18,6 +19,7 @@ from .builder import (
     build_nabn,
     build_ncre,
     build_ndeb,
+    apply_internal_reference,
     build_rdon,
     build_reci,
     default_frase,
@@ -29,6 +31,7 @@ from .builder import (
 from .exceptions import (
     DigifactApiError,
     DigifactAuthError,
+    DigifactDuplicateReferenceError,
     DigifactError,
     DigifactNitNotFoundError,
     DigifactValidationError,
@@ -44,6 +47,11 @@ _BASE_URLS = {
 # Digits in a Guatemalan CUI (DPI); a NIT never reaches this length.
 CUI_LENGTH = 13
 
+HTTP_UNAUTHORIZED = 401
+DUPLICATE_REFERENCE_CODE = 9022
+DUPLICATE_REFERENCE_GLOBAL_CODE = "BUS-003"
+DUPLICATE_REFERENCE_MESSAGE = "ENVIADA A CERTIFICAR"
+
 
 @dataclass
 class DteResult:
@@ -54,6 +62,8 @@ class DteResult:
     number: str
     issue_datetime: str
     raw: dict = field(default_factory=dict)
+    enrolled_timestamp: str = ""
+    additional_info: dict = field(default_factory=dict)
 
     @property
     def auth_number_upper(self) -> str:
@@ -182,6 +192,11 @@ class DigifactClient:
         env = self.environment
         return f"DigifactClient(taxid={self.taxid!r}, username={self.username!r}, environment={env!r})"
 
+    @property
+    def token(self) -> str:
+        """Current bearer token ("" before the first login), to cache it across processes."""
+        return self._token
+
     # ── Authentication ────────────────────────────────────────────────────────
 
     def _login(self) -> str:
@@ -207,6 +222,22 @@ class DigifactClient:
 
     def _headers(self) -> dict:
         return {"Authorization": self._login(), "Content-Type": "application/json"}
+
+    def _send(self, verb: str, url: str, *, json_content: bool = True, **kwargs: Any) -> requests.Response:
+        """Send an authenticated request, logging in again once if the token expired (401)."""
+        send = getattr(self._session, verb)
+        resp = send(url, headers=self._auth_headers(json_content), timeout=self.timeout, **kwargs)
+        if resp.status_code == HTTP_UNAUTHORIZED and self.password:
+            self._token = ""
+            resp = send(url, headers=self._auth_headers(json_content), timeout=self.timeout, **kwargs)
+        if resp.status_code == HTTP_UNAUTHORIZED:
+            raise DigifactAuthError(
+                "Digifact rejected the token (401)", code=HTTP_UNAUTHORIZED, raw=_try_json(resp)
+            )
+        return resp
+
+    def _auth_headers(self, json_content: bool) -> dict:
+        return self._headers() if json_content else {"Authorization": self._login()}
 
     # ── Seller info ───────────────────────────────────────────────────────────
 
@@ -302,23 +333,31 @@ class DigifactClient:
             branch["Name"] = self.branch_name
         return payload
 
-    def _certify(self, payload: dict) -> dict:
+    def _certify(
+        self,
+        payload: dict,
+        *,
+        internal_reference: str | None = None,
+        validate_internal_reference: bool = False,
+    ) -> dict:
         payload = self._apply_branch_info(payload)
-        resp = self._session.post(
+        if internal_reference:
+            payload = apply_internal_reference(
+                payload, internal_reference, validate=validate_internal_reference
+            )
+        elif validate_internal_reference:
+            raise ValueError("validate_internal_reference requires internal_reference")
+        resp = self._send(
+            "post",
             f"{self.base_url}/v2/transform/nuc_json",
             params={
                 "TAXID": self.padded_taxid,
                 "FORMAT": "XML|HTML|PDF",
                 "USERNAME": self.username,
             },
-            headers=self._headers(),
             json=payload,
-            timeout=self.timeout,
         )
-        try:
-            resp.raise_for_status()
-        except requests.HTTPError as exc:
-            raise DigifactApiError(f"Certify HTTP error: {exc}", raw=_try_json(resp)) from exc
+        _raise_for_status(resp, "Certify")
         data = resp.json()
         return _check_response(data)
 
@@ -328,12 +367,15 @@ class DigifactClient:
         number = str(data.get("serial") or data.get("Numero") or "")
         ts_raw = data.get("issuedTimeStamp") or data.get("FechaEmision") or ""
         issue_dt = ts_raw.replace("T", " ") if "T" in ts_raw else ts_raw
+        additional = data.get("additionalInfo")
         return DteResult(
             auth_number=auth,
             series=series,
             number=number,
             issue_datetime=issue_dt,
             raw=data,
+            enrolled_timestamp=data.get("enrolledTimeStamp") or "",
+            additional_info=additional if isinstance(additional, dict) else {},
         )
 
     # ── Public DTE methods ────────────────────────────────────────────────────
@@ -368,6 +410,8 @@ class DigifactClient:
         tipo_personeria: str | None = None,
         tipo_frase: str | None = None,
         escenario: str | None = None,
+        internal_reference: str | None = None,
+        validate_internal_reference: bool = False,
     ) -> DteResult:
         """Emit a DTE invoice (FACT, FCAM, NABN, FESP, RDON, FPEQ, RECI, CCA).
 
@@ -387,6 +431,13 @@ class DigifactClient:
             Observations text for ADENDA.
         tipo_personeria:
             Required for RDON.
+        internal_reference:
+            Digifact internal reference (ADENDA ``Code``). Digifact suggests a
+            GUID, but shorter references are accepted. Can be queried with :meth:`find_by_internal_reference`.
+        validate_internal_reference:
+            When True, Digifact rejects a second DTE with the same
+            ``internal_reference`` (:class:`DigifactDuplicateReferenceError`), so a
+            timed-out request can be retried without issuing twice.
         """
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
@@ -493,7 +544,11 @@ class DigifactClient:
                 observaciones=observaciones,
             )
 
-        data = self._certify(payload)
+        data = self._certify(
+            payload,
+            internal_reference=internal_reference,
+            validate_internal_reference=validate_internal_reference,
+        )
         return self._parse_result(data)
 
     def cca_invoice(
@@ -504,8 +559,13 @@ class DigifactClient:
         *,
         tipo_frase: str | None = None,
         escenario: str | None = None,
+        internal_reference: str | None = None,
+        validate_internal_reference: bool = False,
     ) -> DteResult:
-        """Emit a CCA (Cobro por Cuenta Ajena) FACT+CCA complemento."""
+        """Emit a CCA (Cobro por Cuenta Ajena) FACT+CCA complemento.
+
+        ``internal_reference`` and ``validate_internal_reference`` work as in :meth:`invoice`.
+        """
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
         if self.frases is not None and tipo_frase is None and escenario is None:
@@ -526,7 +586,11 @@ class DigifactClient:
             escenario=es,
             frases=eff_frases,
         )
-        data = self._certify(payload)
+        data = self._certify(
+            payload,
+            internal_reference=internal_reference,
+            validate_internal_reference=validate_internal_reference,
+        )
         return self._parse_result(data)
 
     def fuel_invoice(
@@ -537,6 +601,8 @@ class DigifactClient:
         tipo_frase: str | None = None,
         escenario: str | None = None,
         frases: list[dict] | None = None,
+        internal_reference: str | None = None,
+        validate_internal_reference: bool = False,
     ) -> DteResult:
         """Emit a combustible (fuel) FACT invoice.
 
@@ -569,6 +635,13 @@ class DigifactClient:
                 frases=[{"tipo_frase": "1", "escenario": "1"},
                         {"tipo_frase": "9", "escenario": "18"},
                         {"tipo_frase": "9", "escenario": "19"}]
+        internal_reference:
+            Digifact internal reference (ADENDA ``Code``). Digifact suggests a
+            GUID, but shorter references are accepted. Can be queried with :meth:`find_by_internal_reference`.
+        validate_internal_reference:
+            When True, Digifact rejects a second DTE with the same
+            ``internal_reference`` (:class:`DigifactDuplicateReferenceError`), so a
+            timed-out request can be retried without issuing twice.
 
         Example::
 
@@ -612,7 +685,11 @@ class DigifactClient:
             escenario=eff_es,
             frases=eff_frases,
         )
-        data = self._certify(payload)
+        data = self._certify(
+            payload,
+            internal_reference=internal_reference,
+            validate_internal_reference=validate_internal_reference,
+        )
         return self._parse_result(data)
 
     def _apply_petroleo_rates(self, items: list[dict]) -> list[dict]:
@@ -644,6 +721,8 @@ class DigifactClient:
         *,
         tipo_frase: str | None = None,
         escenario: str | None = None,
+        internal_reference: str | None = None,
+        validate_internal_reference: bool = False,
     ) -> DteResult:
         """Emit a NCRE (Nota de Crédito).
 
@@ -653,6 +732,13 @@ class DigifactClient:
             {"auth_number": str, "date": "YYYY-MM-DD", "series": str, "number": str|int}
         reason:
             Reason for the credit note.
+        internal_reference:
+            Digifact internal reference (ADENDA ``Code``). Digifact suggests a
+            GUID, but shorter references are accepted. Can be queried with :meth:`find_by_internal_reference`.
+        validate_internal_reference:
+            When True, Digifact rejects a second DTE with the same
+            ``internal_reference`` (:class:`DigifactDuplicateReferenceError`), so a
+            timed-out request can be retried without issuing twice.
         """
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
@@ -675,7 +761,11 @@ class DigifactClient:
             escenario=es,
             frases=eff_frases,
         )
-        data = self._certify(payload)
+        data = self._certify(
+            payload,
+            internal_reference=internal_reference,
+            validate_internal_reference=validate_internal_reference,
+        )
         return self._parse_result(data)
 
     def debit_note(
@@ -687,6 +777,8 @@ class DigifactClient:
         *,
         tipo_frase: str | None = None,
         escenario: str | None = None,
+        internal_reference: str | None = None,
+        validate_internal_reference: bool = False,
     ) -> DteResult:
         """Emit a NDEB (Nota de Débito).
 
@@ -696,6 +788,13 @@ class DigifactClient:
             {"auth_number": str, "date": "YYYY-MM-DD", "series": str, "number": str|int}
         reason:
             Reason for the debit note.
+        internal_reference:
+            Digifact internal reference (ADENDA ``Code``). Digifact suggests a
+            GUID, but shorter references are accepted. Can be queried with :meth:`find_by_internal_reference`.
+        validate_internal_reference:
+            When True, Digifact rejects a second DTE with the same
+            ``internal_reference`` (:class:`DigifactDuplicateReferenceError`), so a
+            timed-out request can be retried without issuing twice.
         """
         seller_name, seller_address = self._get_seller_info()
         buyer_dict = self._resolve_buyer(buyer)
@@ -718,7 +817,11 @@ class DigifactClient:
             escenario=es,
             frases=eff_frases,
         )
-        data = self._certify(payload)
+        data = self._certify(
+            payload,
+            internal_reference=internal_reference,
+            validate_internal_reference=validate_internal_reference,
+        )
         return self._parse_result(data)
 
     def cancel(
@@ -735,9 +838,9 @@ class DigifactClient:
         issue_datetime:
             Format "YYYY-MM-DD HH:MM:SS"
         """
-        resp = self._session.post(
+        resp = self._send(
+            "post",
             f"{self.base_url}/CancelFelGT",
-            headers=self._headers(),
             json={
                 "Taxid": self.taxid,
                 "Autorizacion": auth_number,
@@ -746,12 +849,8 @@ class DigifactClient:
                 "MotivoAnulacion": reason,
                 "Username": self.username,
             },
-            timeout=self.timeout,
         )
-        try:
-            resp.raise_for_status()
-        except requests.HTTPError as exc:
-            raise DigifactApiError(f"Cancel HTTP error: {exc}", raw=_try_json(resp)) from exc
+        _raise_for_status(resp, "Cancel")
         return resp.json()
 
     def credit_note_total(
@@ -768,9 +867,9 @@ class DigifactClient:
         issue_datetime:
             Format "YYYY-MM-DD HH:MM:SS"
         """
-        resp = self._session.post(
+        resp = self._send(
+            "post",
             f"{self.base_url}/cert/ncredtotal",
-            headers=self._headers(),
             json={
                 "Staxid": self.taxid,
                 "Authnumber": auth_number,
@@ -780,14 +879,8 @@ class DigifactClient:
                 "Formatos": "xml|html|pdf",
                 "Username": self.username,
             },
-            timeout=self.timeout,
         )
-        try:
-            resp.raise_for_status()
-        except requests.HTTPError as exc:
-            raise DigifactApiError(
-                f"NcredTotal HTTP error: {exc}", raw=_try_json(resp)
-            ) from exc
+        _raise_for_status(resp, "NcredTotal")
         return resp.json()
 
     # ── Query methods ─────────────────────────────────────────────────────────
@@ -802,8 +895,10 @@ class DigifactClient:
         if digits in self._nit_cache:
             return self._nit_cache[digits]
 
-        resp = self._session.get(
+        resp = self._send(
+            "get",
             f"{self.base_url}/Shared",
+            json_content=False,
             params={
                 "COUNTRY": "GT",
                 "TAXID": self.padded_taxid,
@@ -811,15 +906,8 @@ class DigifactClient:
                 "DATA2": f"NIT|{digits}",
                 "USERNAME": self.username,
             },
-            headers={"Authorization": self._login()},
-            timeout=self.timeout,
         )
-        try:
-            resp.raise_for_status()
-        except requests.HTTPError as exc:
-            raise DigifactApiError(
-                f"NIT lookup HTTP error: {exc}", raw=_try_json(resp)
-            ) from exc
+        _raise_for_status(resp, "NIT lookup")
 
         data = resp.json()
         normalized = _parse_nit_response(digits, data)
@@ -838,8 +926,10 @@ class DigifactClient:
         if digits in self._cui_cache:
             return self._cui_cache[digits]
 
-        resp = self._session.get(
+        resp = self._send(
+            "get",
             f"{self.base_url}/Shared",
+            json_content=False,
             params={
                 "COUNTRY": "GT",
                 "TAXID": self.padded_taxid,
@@ -847,15 +937,8 @@ class DigifactClient:
                 "DATA2": f"CUI|{digits}",
                 "USERNAME": self.username,
             },
-            headers={"Authorization": self._login()},
-            timeout=self.timeout,
         )
-        try:
-            resp.raise_for_status()
-        except requests.HTTPError as exc:
-            raise DigifactApiError(
-                f"CUI lookup HTTP error: {exc}", raw=_try_json(resp)
-            ) from exc
+        _raise_for_status(resp, "CUI lookup")
 
         data = resp.json()
         normalized = _parse_cui_response(digits, data)
@@ -866,8 +949,10 @@ class DigifactClient:
 
     def get_dte_info(self, auth_number: str) -> dict:
         """Get DTE info via SHARED_GETDTEINFO."""
-        resp = self._session.get(
+        resp = self._send(
+            "get",
             f"{self.base_url}/Shared",
+            json_content=False,
             params={
                 "COUNTRY": "GT",
                 "TAXID": self.padded_taxid,
@@ -875,40 +960,91 @@ class DigifactClient:
                 "DATA2": f"AUTHNUMBER|{auth_number}",
                 "USERNAME": self.username,
             },
-            headers={"Authorization": self._login()},
-            timeout=self.timeout,
         )
-        try:
-            resp.raise_for_status()
-        except requests.HTTPError as exc:
-            raise DigifactApiError(
-                f"GetDteInfo HTTP error: {exc}", raw=_try_json(resp)
-            ) from exc
+        _raise_for_status(resp, "GetDteInfo")
         return resp.json()
+
+    def find_by_internal_reference(self, reference: str, issued_on: date | str) -> list[dict]:
+        """Find the DTEs certified with an internal reference on a given day.
+
+        Uses ``SHARED_GETDTEINFO_BY_INTERNALID``. Returns the ``RESPONSE`` rows
+        (``GUID``, ``SERIE``, ``NUMERO``, ``ESTATUS``…), or an empty list when
+        Digifact has no DTE with that reference on that day. A reply that is not
+        JSON raises a retryable :class:`DigifactApiError` instead of looking empty.
+
+        Parameters
+        ----------
+        issued_on:
+            Issue date, as a :class:`datetime.date` or "YYYY-MM-DD".
+        """
+        day = issued_on.isoformat() if isinstance(issued_on, date) else issued_on
+        resp = self._send(
+            "get",
+            f"{self.base_url}/Shared",
+            json_content=False,
+            params={
+                "COUNTRY": "GT",
+                "TAXID": self.padded_taxid,
+                "DATA1": "SHARED_GETDTEINFO_BY_INTERNALID",
+                "DATA2": f"REFERENCIA_INTERNA|{reference}|ISSUEDDATE|{day}",
+                "USERNAME": self.username,
+            },
+        )
+        _raise_for_status(resp, "GetDteInfoByInternalId")
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise DigifactApiError(
+                "GetDteInfoByInternalId returned a response that is not JSON",
+                code=resp.status_code,
+                raw={"_text": resp.text},
+                retryable=True,
+            ) from exc
+        rows = data.get("RESPONSE") if isinstance(data, dict) else None
+        return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
     def get_dte(self, auth_number: str, fmt: str = "JSON") -> dict:
         """Retrieve a DTE document via GET /GetDocument."""
-        resp = self._session.get(
+        resp = self._send(
+            "get",
             f"{self.base_url}/GetDocument",
+            json_content=False,
             params={
                 "AUTHNUMBER": auth_number,
                 "TAXID": self.padded_taxid,
                 "FORMAT": fmt,
                 "USERNAME": self.username,
             },
-            headers={"Authorization": self._login()},
-            timeout=self.timeout,
         )
-        try:
-            resp.raise_for_status()
-        except requests.HTTPError as exc:
-            raise DigifactApiError(
-                f"GetDocument HTTP error: {exc}", raw=_try_json(resp)
-            ) from exc
+        _raise_for_status(resp, "GetDocument")
         return resp.json()
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _raise_for_status(resp: requests.Response, operation: str) -> None:
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        raise DigifactApiError(
+            f"{operation} HTTP error: {exc}",
+            code=resp.status_code,
+            raw=_try_json(resp),
+            retryable=resp.status_code >= 500,
+        ) from exc
+
+
+def _is_duplicate_reference(data: dict, code: Any) -> bool:
+    if str(code) == str(DUPLICATE_REFERENCE_CODE):
+        return True
+    global_code = str(data.get("codeError") or "").upper()
+    message = str(data.get("description") or data.get("message") or "").upper()
+    return (
+        DUPLICATE_REFERENCE_GLOBAL_CODE in global_code
+        or str(DUPLICATE_REFERENCE_CODE) in message
+        or DUPLICATE_REFERENCE_MESSAGE in message
+    )
+
 
 def _try_json(resp: requests.Response) -> dict:
     try:
@@ -928,7 +1064,15 @@ def _check_response(data: dict) -> dict:
         # Unknown format — return as-is (let caller decide)
         return data
 
-    code_int = int(code)
+    if _is_duplicate_reference(data, code):
+        msg = data.get("description") or data.get("message") or str(data)
+        raise DigifactDuplicateReferenceError(
+            f"Internal reference already sent to certify: {msg}", code=DUPLICATE_REFERENCE_CODE, raw=data
+        )
+    try:
+        code_int = int(code)
+    except (TypeError, ValueError):
+        raise DigifactApiError(f"API returned an unexpected code {code!r}: {data}", raw=data) from None
     if code_int == 1:
         return data
     if code_int == 0:

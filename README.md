@@ -104,6 +104,26 @@ Console.WriteLine(result.AuthNumber);
 | `lookupNit()` | — | Consulta nombre/dirección de un NIT en SAT |
 | `lookupCui()` | — | Consulta el nombre de un CUI (DPI) en SAT |
 | `getDte()` | — | Descarga un DTE ya emitido |
+| `findByInternalReference()` | — | Busca los DTE certificados con una referencia interna en un día |
+
+## Emisión sin duplicados (común a los 4 SDKs)
+
+Los métodos de emisión (factura, CCA, combustible, nota de crédito y nota de débito) aceptan una referencia interna y
+la opción de validarla. Con la validación activa, Digifact rechaza otra emisión con la misma referencia (error `9022`)
+y el DTE se encuentra por esa referencia:
+
+| | Python | JavaScript | PHP | C# / .NET |
+|---|---|---|---|---|
+| Referencia | `internal_reference=` | opción `internal_reference` | opción `internal_reference` | `InternalReference` |
+| Validar duplicados | `validate_internal_reference=True` | opción `validate_internal_reference` | opción `validate_internal_reference` | `ValidateInternalReference` |
+| Duplicado | `DigifactDuplicateReferenceError` | `DigifactDuplicateReferenceError` | `DigifactDuplicateReferenceException` | `DigifactDuplicateReferenceException` |
+| Buscar por referencia | `find_by_internal_reference()` | `findByInternalReference()` | `findByInternalReference()` | `FindByInternalReferenceAsync()` |
+| ¿Reintentable? | `exc.retryable` | `error.retryable` | `$e->isRetryable()` | `ex.Retryable` |
+| Token vigente | `client.token` | `client.token` | `getToken()` | `Token` |
+
+Ante un `401`, el SDK vuelve a iniciar sesión una vez si tiene contraseña. Los errores HTTP 5xx se marcan como
+reintentables y los 4xx no. `SHARED_GETDTEINFO_BY_INTERNALID` y el error `9022` no están en la
+documentación de Digifact para Guatemala, pero se verificaron en el ambiente de pruebas el 3 de noviembre de 2026.
 
 ## Configuración del cliente (común a los 4 SDKs)
 

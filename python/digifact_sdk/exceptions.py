@@ -5,10 +5,18 @@ from __future__ import annotations
 class DigifactError(Exception):
     """Base exception for all Digifact SDK errors."""
 
-    def __init__(self, message: str, code: int | None = None, raw: dict | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        code: int | None = None,
+        raw: dict | None = None,
+        *,
+        retryable: bool = False,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.raw = raw or {}
+        self.retryable = retryable
 
     def __repr__(self) -> str:
         return f"DigifactError(message={str(self)!r}, code={self.code!r})"
@@ -20,6 +28,15 @@ class DigifactAuthError(DigifactError):
 
 class DigifactApiError(DigifactError):
     """API returned a non-success response."""
+
+
+class DigifactDuplicateReferenceError(DigifactApiError):
+    """The internal reference was already sent to certify (Digifact 9022 / BUS-003).
+
+    Raised only when the DTE was sent with ``validate_internal_reference=True``.
+    The original DTE may already be certified: look it up with
+    :meth:`DigifactClient.find_by_internal_reference` instead of issuing again.
+    """
 
 
 class DigifactValidationError(DigifactError):

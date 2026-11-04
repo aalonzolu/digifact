@@ -11,6 +11,7 @@ from .client import DigifactClient, DteResult
 from .exceptions import (
     DigifactApiError,
     DigifactAuthError,
+    DigifactDuplicateReferenceError,
     DigifactError,
     DigifactNitNotFoundError,
     DigifactValidationError,
@@ -23,6 +24,7 @@ __all__ = [
     "DigifactError",
     "DigifactAuthError",
     "DigifactApiError",
+    "DigifactDuplicateReferenceError",
     "DigifactValidationError",
     "DigifactNitNotFoundError",
     "FuelExemption",

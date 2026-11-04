@@ -30,6 +30,8 @@ class DigifactClient
     private array $cuiCache = [];
     /** @var array<string,float> PETROLEO code → per-unit amount */
     private array $petroleoRates = [];
+    /** @var \Closure(string, string, list<string>, ?string): array{0:int,1:string} */
+    private \Closure $transport;
 
     private const BASE_URLS = [
         'test'       => 'https://testnucgt.digifact.com/api',
@@ -38,6 +40,11 @@ class DigifactClient
 
     /** Digits in a Guatemalan CUI (DPI); a NIT never reaches this length. */
     private const CUI_LENGTH = 13;
+
+    private const HTTP_UNAUTHORIZED = 401;
+    private const DUPLICATE_REFERENCE_CODE = 9022;
+    private const DUPLICATE_REFERENCE_GLOBAL_CODE = 'BUS-003';
+    private const DUPLICATE_REFERENCE_MESSAGE = 'ENVIADA A CERTIFICAR';
 
     /**
      * @param array $config Configuration keys (all except taxid/username/password are optional):
@@ -86,6 +93,9 @@ class DigifactClient
      *       amount, e.g. ["1" => 4.70, "2" => 4.60, "4" => 1.30]
      *       (SUPER / REGULAR / DIESEL). Used by {@see fuelInvoice()} when items
      *       provide `petroleo_code` but omit `petroleo_amount`.
+     *   - transport (callable): HTTP transport
+     *       `fn(string $method, string $url, array $headers, ?string $body): array{0:int,1:string}`
+     *       returning `[status, body]`. Defaults to cURL; meant for tests or a custom HTTP stack.
      */
     public function __construct(array $config)
     {
@@ -114,6 +124,7 @@ class DigifactClient
         $this->branchName = (string)($config['branch_name'] ?? 'ESTABLECIMIENTO PRINCIPAL');
         $this->timeout = (int)($config['timeout'] ?? 120);
         $this->petroleoRates = $config['petroleo_rates'] ?? [];
+        $this->transport = \Closure::fromCallable($config['transport'] ?? $this->curlTransport(...));
 
         if (!$this->taxid) {
             throw new \InvalidArgumentException("taxid must contain at least one digit");
@@ -147,6 +158,14 @@ class DigifactClient
         ];
     }
 
+    /**
+     * Current bearer token ("" before the first login), to cache it across processes.
+     */
+    public function getToken(): string
+    {
+        return $this->token;
+    }
+
     // ── Authentication ────────────────────────────────────────────────────────
 
     private function login(): string
@@ -158,10 +177,11 @@ class DigifactClient
             throw new DigifactAuthException('password or token is required');
         }
         $fullUsername = "GT.{$this->paddedTaxid}.{$this->username}";
-        $data = $this->post('/login/get_token', [
+        [$status, $response] = $this->send('POST', '/login/get_token', ['Content-Type: application/json'], [], [
             'Username' => $fullUsername,
             'Password' => $this->password,
-        ], false);
+        ]);
+        $data = $this->decode($status, $response);
 
         $tok = $data['Token'] ?? $data['token'] ?? null;
         if (!$tok) {
@@ -178,33 +198,70 @@ class DigifactClient
 
     // ── HTTP helpers ──────────────────────────────────────────────────────────
 
+    private function post(string $path, array $body, array $queryParams = []): array
+    {
+        return $this->request('POST', $path, $queryParams, $body);
+    }
+
+    private function get(string $path, array $queryParams = []): array
+    {
+        return $this->request('GET', $path, $queryParams);
+    }
+
     /**
-     * Perform a POST request.
-     *
-     * @param bool $withAuth Whether to include the Authorization header
+     * Send an authenticated request, logging in again once if the token expired (401).
      */
-    private function post(string $path, array $body, bool $withAuth = true, array $queryParams = []): array
+    private function request(string $method, string $path, array $queryParams = [], ?array $body = null): array
+    {
+        [$status, $response] = $this->send($method, $path, $this->authHeaders(), $queryParams, $body);
+        if ($status === self::HTTP_UNAUTHORIZED && $this->password) {
+            $this->token = '';
+            [$status, $response] = $this->send($method, $path, $this->authHeaders(), $queryParams, $body);
+        }
+        if ($status === self::HTTP_UNAUTHORIZED) {
+            throw new DigifactAuthException(
+                'Digifact rejected the token (401)',
+                self::HTTP_UNAUTHORIZED,
+                self::tryDecode($response)
+            );
+        }
+        return $this->decode($status, $response);
+    }
+
+    /**
+     * @param list<string> $headers
+     * @return array{0:int,1:string}
+     */
+    private function send(string $method, string $path, array $headers, array $queryParams = [], ?array $body = null): array
     {
         $url = $this->baseUrl . $path;
         if ($queryParams) {
             $url .= '?' . http_build_query($queryParams);
         }
-        $json = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $json = $body === null ? null : json_encode($body, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
+        return ($this->transport)($method, $url, $headers, $json);
+    }
+
+    /**
+     * @param list<string> $headers
+     * @return array{0:int,1:string}
+     */
+    private function curlTransport(string $method, string $url, array $headers, ?string $body): array
+    {
         $ch = curl_init($url);
-        $headers = ['Content-Type: application/json'];
-        if ($withAuth) {
-            $headers[] = 'Authorization: ' . $this->login();
-        }
-        curl_setopt_array($ch, [
-            CURLOPT_POST            => true,
-            CURLOPT_POSTFIELDS      => $json,
+        $options = [
             CURLOPT_HTTPHEADER      => $headers,
             CURLOPT_RETURNTRANSFER  => true,
             CURLOPT_TIMEOUT         => $this->timeout,
             CURLOPT_CONNECTTIMEOUT  => min($this->timeout, 30),
             CURLOPT_SSL_VERIFYPEER  => true,
-        ]);
+        ];
+        if ($method === 'POST') {
+            $options[CURLOPT_POST] = true;
+            $options[CURLOPT_POSTFIELDS] = $body;
+        }
+        curl_setopt_array($ch, $options);
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -214,45 +271,27 @@ class DigifactClient
         if ($error) {
             throw new DigifactApiException("cURL error: $error");
         }
-        if ($httpCode >= 400) {
-            $preview = mb_strlen($response) > 300 ? mb_substr($response, 0, 300) . '…' : $response;
-            throw new DigifactApiException("HTTP $httpCode: $preview", $httpCode);
-        }
-
-        $decoded = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
-        return $decoded;
+        return [$httpCode, (string)$response];
     }
 
-    private function get(string $path, array $queryParams = []): array
+    private function decode(int $status, string $response): array
     {
-        $url = $this->baseUrl . $path;
-        if ($queryParams) {
-            $url .= '?' . http_build_query($queryParams);
-        }
-
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_HTTPHEADER      => $this->authHeaders(),
-            CURLOPT_RETURNTRANSFER  => true,
-            CURLOPT_TIMEOUT         => $this->timeout,
-            CURLOPT_CONNECTTIMEOUT  => min($this->timeout, 30),
-            CURLOPT_SSL_VERIFYPEER  => true,
-        ]);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-        curl_close($ch);
-
-        if ($error) {
-            throw new DigifactApiException("cURL error: $error");
-        }
-        if ($httpCode >= 400) {
+        if ($status >= 400) {
             $preview = mb_strlen($response) > 300 ? mb_substr($response, 0, 300) . '…' : $response;
-            throw new DigifactApiException("HTTP $httpCode: $preview", $httpCode);
+            throw new DigifactApiException(
+                "HTTP $status: $preview",
+                $status,
+                self::tryDecode($response),
+                retryable: $status >= 500
+            );
         }
-
         return json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    private static function tryDecode(string $response): array
+    {
+        $decoded = json_decode($response, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     // ── Seller info ───────────────────────────────────────────────────────────
@@ -347,10 +386,20 @@ class DigifactClient
         return $payload;
     }
 
-    private function certify(array $payload): array
+    /**
+     * @param array $opts Reads internal_reference and validate_internal_reference.
+     */
+    private function certify(array $payload, array $opts = []): array
     {
         $payload = $this->applyBranchInfo($payload);
-        $data = $this->post('/v2/transform/nuc_json', $payload, true, [
+        $reference = (string)($opts['internal_reference'] ?? '');
+        $validate = (bool)($opts['validate_internal_reference'] ?? false);
+        if ($reference !== '') {
+            $payload = DteBuilder::applyInternalReference($payload, $reference, $validate);
+        } elseif ($validate) {
+            throw new \InvalidArgumentException('validate_internal_reference requires internal_reference');
+        }
+        $data = $this->post('/v2/transform/nuc_json', $payload, [
             'TAXID'    => $this->paddedTaxid,
             'FORMAT'   => 'XML|HTML|PDF',
             'USERNAME' => $this->username,
@@ -369,7 +418,22 @@ class DigifactClient
             return $data;
         }
 
-        $codeInt = (int)$code;
+        if (self::isDuplicateReference($data, $code)) {
+            $msg = $data['description'] ?? $data['message'] ?? json_encode($data);
+            throw new DigifactDuplicateReferenceException(
+                "Internal reference already sent to certify: $msg",
+                self::DUPLICATE_REFERENCE_CODE,
+                $data
+            );
+        }
+        $codeInt = filter_var($code, FILTER_VALIDATE_INT);
+        if ($codeInt === false) {
+            throw new DigifactApiException(
+                sprintf('API returned an unexpected code %s: %s', json_encode($code), json_encode($data)),
+                null,
+                $data
+            );
+        }
         if ($codeInt === 1) {
             return $data;
         }
@@ -384,6 +448,18 @@ class DigifactClient
             throw new DigifactValidationException($fullMsg, $codeInt, $data);
         }
         throw new DigifactApiException($fullMsg, $codeInt, $data);
+    }
+
+    private static function isDuplicateReference(array $data, mixed $code): bool
+    {
+        if (in_array($code, [self::DUPLICATE_REFERENCE_CODE, (string)self::DUPLICATE_REFERENCE_CODE], true)) {
+            return true;
+        }
+        $globalCode = strtoupper((string)($data['codeError'] ?? ''));
+        $message = strtoupper((string)(($data['description'] ?? '') ?: ($data['message'] ?? '')));
+        return str_contains($globalCode, self::DUPLICATE_REFERENCE_GLOBAL_CODE)
+            || str_contains($message, (string)self::DUPLICATE_REFERENCE_CODE)
+            || str_contains($message, self::DUPLICATE_REFERENCE_MESSAGE);
     }
 
     private function classifyError(string $message): ?string
@@ -464,7 +540,14 @@ class DigifactClient
      * @param string|array $buyer  "CF", NIT string, CUI array, or buyer array
      * @param list<array>  $items  Item arrays with keys: description, qty, price, type
      * @param array        $opts   Options: doc_type, payment_terms, amount_str,
-     *                              observaciones, tipo_personeria, tipo_frase, escenario
+     *                              observaciones, tipo_personeria, tipo_frase, escenario,
+     *                              internal_reference, validate_internal_reference
+     *
+     * $opts['internal_reference'] is the Digifact internal reference (ADENDA Code);
+     * Digifact suggests a GUID, but shorter references are accepted. With $opts['validate_internal_reference']
+     * Digifact rejects a second DTE with the same reference
+     * ({@see DigifactDuplicateReferenceException}), so a timed-out request can be
+     * retried without issuing twice. Look it up with {@see findByInternalReference()}.
      */
     public function invoice(string|array $buyer, array $items, array $opts = []): DteResult
     {
@@ -542,14 +625,15 @@ class DigifactClient
                 break;
         }
 
-        $data = $this->certify($payload);
+        $data = $this->certify($payload, $opts);
         return DteResult::fromArray($data);
     }
 
     /**
      * Emit a CCA (Cobro por Cuenta Ajena) FACT+CCA complemento.
      *
-     * @param array $opts Options: tipo_frase, escenario
+     * @param array $opts Options: tipo_frase, escenario, internal_reference,
+     *                    validate_internal_reference (as in {@see invoice()})
      */
     public function ccaInvoice(string|array $buyer, array $items, array $cobros, array $opts = []): DteResult
     {
@@ -567,7 +651,7 @@ class DigifactClient
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items, $cobros, $this->afiliacionIva,
             null, $tipoFrase, $escenario, $effFrases
         );
-        $data = $this->certify($payload);
+        $data = $this->certify($payload, $opts);
         return DteResult::fromArray($data);
     }
 
@@ -584,7 +668,8 @@ class DigifactClient
      * and frases 9/23 and 4/38 are added automatically.
      *
      * @param array $items Each fuel item: description, qty, price, petroleo_amount, petroleo_code, type, unit_of_measure
-     * @param array $opts  Options: tipo_frase, escenario, frases
+     * @param array $opts  Options: tipo_frase, escenario, frases, internal_reference,
+     *                     validate_internal_reference (as in {@see invoice()})
      *
      * $opts['frases'] is an explicit list of ['tipo_frase' => ..., 'escenario' => ...] pairs.
      * Mutually exclusive with tipo_frase/escenario.
@@ -632,7 +717,7 @@ class DigifactClient
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $resolved, $this->afiliacionIva,
             $effTipoFrase, $effEscenario, null, $effFrases
         );
-        $data = $this->certify($payload);
+        $data = $this->certify($payload, $opts);
         return DteResult::fromArray($data);
     }
 
@@ -663,7 +748,8 @@ class DigifactClient
      * Emit a NCRE (Nota de Crédito).
      *
      * @param array $origin ["auth_number" => ..., "date" => "YYYY-MM-DD", "series" => ..., "number" => ...]
-     * @param array $opts   Options: tipo_frase, escenario
+     * @param array $opts   Options: tipo_frase, escenario, internal_reference,
+     *                      validate_internal_reference (as in {@see invoice()})
      */
     public function creditNote(string|array $buyer, array $items, array $origin, string $reason, array $opts = []): DteResult
     {
@@ -681,7 +767,7 @@ class DigifactClient
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
             $origin, $reason, $this->afiliacionIva, null, $tipoFrase, $escenario, $effFrases
         );
-        $data = $this->certify($payload);
+        $data = $this->certify($payload, $opts);
         return DteResult::fromArray($data);
     }
 
@@ -689,7 +775,8 @@ class DigifactClient
      * Emit a NDEB (Nota de Débito).
      *
      * @param array $origin ["auth_number" => ..., "date" => "YYYY-MM-DD", "series" => ..., "number" => ...]
-     * @param array $opts   Options: tipo_frase, escenario
+     * @param array $opts   Options: tipo_frase, escenario, internal_reference,
+     *                      validate_internal_reference (as in {@see invoice()})
      */
     public function debitNote(string|array $buyer, array $items, array $origin, string $reason, array $opts = []): DteResult
     {
@@ -707,7 +794,7 @@ class DigifactClient
             $this->taxid, $sellerName, $sellerAddress, $buyerArr, $items,
             $origin, $reason, $this->afiliacionIva, null, $tipoFrase, $escenario, $effFrases
         );
-        $data = $this->certify($payload);
+        $data = $this->certify($payload, $opts);
         return DteResult::fromArray($data);
     }
 
@@ -883,6 +970,26 @@ class DigifactClient
             'DATA2'    => "AUTHNUMBER|$authNumber",
             'USERNAME' => $this->username,
         ]);
+    }
+
+    /**
+     * Find the DTEs certified with an internal reference on a given day (SHARED_GETDTEINFO_BY_INTERNALID).
+     *
+     * @param string|\DateTimeInterface $issuedOn Issue date, as a date or "YYYY-MM-DD"
+     * @return list<array> RESPONSE rows (GUID, SERIE, NUMERO, ESTATUS…), empty when Digifact has none
+     */
+    public function findByInternalReference(string $reference, string|\DateTimeInterface $issuedOn): array
+    {
+        $day = $issuedOn instanceof \DateTimeInterface ? $issuedOn->format('Y-m-d') : $issuedOn;
+        $data = $this->get('/Shared', [
+            'COUNTRY'  => 'GT',
+            'TAXID'    => $this->paddedTaxid,
+            'DATA1'    => 'SHARED_GETDTEINFO_BY_INTERNALID',
+            'DATA2'    => "REFERENCIA_INTERNA|$reference|ISSUEDDATE|$day",
+            'USERNAME' => $this->username,
+        ]);
+        $rows = $data['RESPONSE'] ?? null;
+        return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
     }
 
     /**

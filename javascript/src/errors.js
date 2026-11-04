@@ -3,31 +3,40 @@
  */
 
 export class DigifactError extends Error {
-  constructor(message, code = null, raw = {}) {
+  constructor(message, code = null, raw = {}, { retryable = false } = {}) {
     super(message);
     this.name = 'DigifactError';
     this.code = code;
     this.raw = raw;
+    this.retryable = retryable;
   }
 }
 
 export class DigifactAuthError extends DigifactError {
-  constructor(message, code = null, raw = {}) {
-    super(message, code, raw);
+  constructor(message, code = null, raw = {}, options = {}) {
+    super(message, code, raw, options);
     this.name = 'DigifactAuthError';
   }
 }
 
 export class DigifactApiError extends DigifactError {
-  constructor(message, code = null, raw = {}) {
-    super(message, code, raw);
+  constructor(message, code = null, raw = {}, options = {}) {
+    super(message, code, raw, options);
     this.name = 'DigifactApiError';
   }
 }
 
+/** Internal reference already sent to certify (9022 / BUS-003): look it up with `findByInternalReference()`. */
+export class DigifactDuplicateReferenceError extends DigifactApiError {
+  constructor(message, code = null, raw = {}, options = {}) {
+    super(message, code, raw, options);
+    this.name = 'DigifactDuplicateReferenceError';
+  }
+}
+
 export class DigifactValidationError extends DigifactError {
-  constructor(message, code = null, raw = {}) {
-    super(message, code, raw);
+  constructor(message, code = null, raw = {}, options = {}) {
+    super(message, code, raw, options);
     this.name = 'DigifactValidationError';
   }
 }

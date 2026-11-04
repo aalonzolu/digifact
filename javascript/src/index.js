@@ -8,6 +8,7 @@ export {
   DigifactError,
   DigifactAuthError,
   DigifactApiError,
+  DigifactDuplicateReferenceError,
   DigifactValidationError,
   DigifactNitNotFoundError,
 } from './errors.js';

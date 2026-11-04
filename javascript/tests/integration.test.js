@@ -11,14 +11,16 @@
  * Run with: node --test tests/integration.test.js
  */
 
-import { test, describe, before } from 'node:test';
+import { test, describe, before, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { DigifactClient, DigifactError } from '../src/index.js';
+import {
+  DigifactClient, DigifactError, DigifactApiError, DigifactAuthError, DigifactDuplicateReferenceError,
+} from '../src/index.js';
 import { gtNow, padTaxid, fmt, calcIva, calcFuelLine } from '../src/tax.js';
 import { DteResult } from '../src/client.js';
 import {
   buildFact, buildFesp, buildNdeb, buildNcre, buyerCf, buyerNit,
-  buildFactCombustible, resolveFuelFrases, fuelExemption,
+  buildFactCombustible, resolveFuelFrases, fuelExemption, ADENDA_CODE_STD,
 } from '../src/builder.js';
 
 const TAXID    = process.env.DIGIFACT_TAXID    || '';
@@ -443,6 +445,301 @@ describe('Unit: fuel frases', () => {
         tipoFrase: '1',
       }),
       /mutually exclusive/
+    );
+  });
+});
+
+// ── Unit tests: internal reference, token renewal, error classification ──────
+
+const REFERENCE = '0F8FAD5B-D9CB-469F-A165-70867728950E';
+const ITEMS = [{ description: 'Servicio', qty: 1, price: 100 }];
+const ORIGIN = { auth_number: 'AAAABBBB-1111-2222-3333-444455556666', date: '2026-10-01', series: 'AAAABBBB', number: '1' };
+const CERTIFIED = {
+  code: 1,
+  authNumber: 'CCCCDDDD-1111-2222-3333-444455556666',
+  batch: 'CCCCDDDD',
+  serial: 123,
+  issuedTimeStamp: '2026-11-03T10:00:00',
+  enrolledTimeStamp: '2026-11-03T10:00:02',
+  additionalInfo: { acuseReciboSAT: 'ACEPTADO' },
+};
+const CERTIFY_PATH = '/v2/transform/nuc_json';
+const LOGIN_PATH = '/login/get_token';
+
+const realFetch = globalThis.fetch;
+
+function fakeDigifact() {
+  const routes = [];
+  const calls = [];
+  const digifact = {
+    on(method, path, ...responses) {
+      routes.push({ method, path, queue: responses });
+      return digifact;
+    },
+    callsTo(method, path) {
+      return calls.filter(call => call.method === method && call.path.endsWith(path));
+    },
+    async fetch(url, init = {}) {
+      const { pathname, searchParams } = new URL(url);
+      const method = init.method ?? 'GET';
+      calls.push({
+        method,
+        path: pathname,
+        params: Object.fromEntries(searchParams),
+        headers: init.headers ?? {},
+        body: init.body === undefined ? undefined : JSON.parse(init.body),
+      });
+      const route = routes.find(r => r.method === method && pathname.endsWith(r.path));
+      if (!route) throw new Error(`Unexpected ${method} ${url}`);
+      const [status, body] = route.queue.length > 1 ? route.queue.shift() : route.queue[0];
+      return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+    },
+  };
+  globalThis.fetch = digifact.fetch;
+  return digifact;
+}
+
+function aClient({ password = 'secreto', token = 'token-vigente' } = {}) {
+  return new DigifactClient({
+    taxid: '12345678',
+    username: 'FELUSER',
+    password,
+    token,
+    seller_name: 'EMPRESA DEMO, SOCIEDAD ANONIMA',
+    seller_address: 'CIUDAD',
+  });
+}
+
+function adendaOf(payload) {
+  return payload.AdditionalDocumentInfo.AdditionalInfo.filter(entry => entry.Type === 'ADENDA');
+}
+
+function referenceFlags(adenda) {
+  return adenda.AditionalInfo.filter(info => info.Name === 'VALIDAR_REFERENCIA_INTERNA').map(info => info.Value);
+}
+
+describe('Unit: internal reference', () => {
+  let digifact;
+  const sentPayload = () => digifact.callsTo('POST', CERTIFY_PATH).at(-1).body;
+
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  test('invoice carries the reference with validation', async () => {
+    digifact = fakeDigifact().on('POST', CERTIFY_PATH, [200, CERTIFIED]);
+
+    await aClient().invoice('CF', ITEMS, { internal_reference: REFERENCE, validate_internal_reference: true });
+
+    const [adenda] = adendaOf(sentPayload());
+    assert.equal(adenda.Code, REFERENCE);
+    assert.deepEqual(referenceFlags(adenda), ['VALIDAR']);
+    assert.equal(adenda.AditionalInfo[0].Name, 'VALIDAR_REFERENCIA_INTERNA');
+    assert.ok('AditionalData' in adenda);
+  });
+
+  test('reference without validation is only stored', async () => {
+    digifact = fakeDigifact().on('POST', CERTIFY_PATH, [200, CERTIFIED]);
+
+    await aClient().invoice('CF', ITEMS, { internal_reference: REFERENCE });
+
+    const [adenda] = adendaOf(sentPayload());
+    assert.equal(adenda.Code, REFERENCE);
+    assert.deepEqual(referenceFlags(adenda), ['NO_VALIDAR']);
+  });
+
+  test('without reference the payload is unchanged', async () => {
+    digifact = fakeDigifact().on('POST', CERTIFY_PATH, [200, CERTIFIED]);
+
+    await aClient().invoice('CF', ITEMS);
+
+    const [adenda] = adendaOf(sentPayload());
+    assert.equal(adenda.Code, ADENDA_CODE_STD);
+    assert.deepEqual(referenceFlags(adenda), ['NO_VALIDAR']);
+  });
+
+  test('credit note gets an ADENDA next to its complement', async () => {
+    digifact = fakeDigifact().on('POST', CERTIFY_PATH, [200, CERTIFIED]);
+
+    await aClient().creditNote('CF', ITEMS, ORIGIN, 'Devolución', {
+      internal_reference: REFERENCE, validate_internal_reference: true,
+    });
+
+    const entries = sentPayload().AdditionalDocumentInfo.AdditionalInfo;
+    assert.deepEqual(entries.map(entry => entry.Type), ['COMPLEMENTO', 'ADENDA']);
+    assert.equal(entries[1].Code, REFERENCE);
+    assert.deepEqual(referenceFlags(entries[1]), ['VALIDAR']);
+  });
+
+  test('validation needs a reference', async () => {
+    digifact = fakeDigifact().on('POST', CERTIFY_PATH, [200, CERTIFIED]);
+
+    await assert.rejects(aClient().invoice('CF', ITEMS, { validate_internal_reference: true }), TypeError);
+    assert.equal(digifact.callsTo('POST', CERTIFY_PATH).length, 0);
+  });
+
+  test('result exposes enrollment and additional info', async () => {
+    digifact = fakeDigifact().on('POST', CERTIFY_PATH, [200, CERTIFIED]);
+
+    const result = await aClient().invoice('CF', ITEMS);
+
+    assert.equal(result.enrolledTimestamp, '2026-11-03T10:00:02');
+    assert.deepEqual(result.additionalInfo, { acuseReciboSAT: 'ACEPTADO' });
+  });
+});
+
+describe('Unit: duplicate reference', () => {
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  const certifyAnswering = (body) => {
+    fakeDigifact().on('POST', CERTIFY_PATH, [200, body]);
+    return aClient().invoice('CF', ITEMS, { internal_reference: REFERENCE, validate_internal_reference: true });
+  };
+
+  test('code 9022 is a duplicate reference', async () => {
+    for (const code of [9022, '9022']) {
+      await assert.rejects(
+        certifyAnswering({ code, description: 'Referencia interna duplicada' }),
+        (error) => error instanceof DigifactDuplicateReferenceError && error instanceof DigifactApiError && !error.retryable,
+      );
+    }
+  });
+
+  test('rejection message about an already sent reference is a duplicate', async () => {
+    await assert.rejects(
+      certifyAnswering({ code: 0, description: 'La referencia interna ya ha sido enviada a certificar' }),
+      DigifactDuplicateReferenceError,
+    );
+  });
+
+  test('global error code BUS-003 is a duplicate', async () => {
+    await assert.rejects(
+      certifyAnswering({ code: 0, codeError: 'BUS-003', description: 'Rechazado' }),
+      DigifactDuplicateReferenceError,
+    );
+  });
+
+  test('the response Digifact actually sends is a duplicate', async () => {
+    await assert.rejects(
+      certifyAnswering({
+        code: 3000,
+        message: 'La referencia INTERNA, ya ha sido enviada a certificar',
+        description: '[9022] - El documento bajo la referencia 0F8FAD5B-D9CB-469F-A165-70867728950E ya ha sido registrado bajo el UUID CCCCDDDD-1111-2222-3333-444455556666',
+      }),
+      DigifactDuplicateReferenceError,
+    );
+  });
+
+  test('non-numeric code is an API error', async () => {
+    await assert.rejects(certifyAnswering({ code: 'Otro', description: '?' }), DigifactApiError);
+  });
+});
+
+describe('Unit: token renewal', () => {
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  test('expired token logs in again and retries once', async () => {
+    const digifact = fakeDigifact()
+      .on('POST', CERTIFY_PATH, [401, {}], [200, CERTIFIED])
+      .on('POST', LOGIN_PATH, [200, { Token: 'token-nuevo' }]);
+    const client = aClient({ token: 'token-vencido' });
+
+    const result = await client.invoice('CF', ITEMS);
+
+    const certifyCalls = digifact.callsTo('POST', CERTIFY_PATH);
+    assert.equal(result.authNumber, CERTIFIED.authNumber);
+    assert.deepEqual(certifyCalls.map(call => call.headers.Authorization), ['token-vencido', 'token-nuevo']);
+    assert.equal(client.token, 'token-nuevo');
+  });
+
+  test('token-only client reports the expired token', async () => {
+    const digifact = fakeDigifact().on('GET', '/Shared', [401, {}]);
+    const client = aClient({ password: '', token: 'token-vencido' });
+
+    await assert.rejects(
+      client.getDteInfo('CCCCDDDD-1111-2222-3333-444455556666'),
+      (error) => error instanceof DigifactAuthError && error.code === 401,
+    );
+    assert.deepEqual(digifact.callsTo('POST', LOGIN_PATH), []);
+  });
+
+  test('still unauthorized after login is an auth error', async () => {
+    const digifact = fakeDigifact()
+      .on('POST', CERTIFY_PATH, [401, {}])
+      .on('POST', LOGIN_PATH, [200, { Token: 'token-nuevo' }]);
+
+    await assert.rejects(aClient().invoice('CF', ITEMS), DigifactAuthError);
+    assert.equal(digifact.callsTo('POST', CERTIFY_PATH).length, 2);
+  });
+
+  test('token is empty before the first login', () => {
+    assert.equal(aClient({ token: '' }).token, '');
+  });
+});
+
+describe('Unit: error classification', () => {
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  const certifyWithStatus = async (status) => {
+    fakeDigifact().on('POST', CERTIFY_PATH, [status, { message: 'error' }]);
+    try {
+      await aClient().invoice('CF', ITEMS);
+    } catch (error) {
+      assert.ok(error instanceof DigifactApiError);
+      return error;
+    }
+    assert.fail(`HTTP ${status} did not throw`);
+  };
+
+  test('server errors are retryable', async () => {
+    const error = await certifyWithStatus(503);
+
+    assert.equal(error.retryable, true);
+    assert.equal(error.code, 503);
+  });
+
+  test('invalid documents are not retryable', async () => {
+    for (const status of [400, 406, 415]) {
+      assert.equal((await certifyWithStatus(status)).retryable, false, `HTTP ${status}`);
+    }
+  });
+});
+
+describe('Unit: findByInternalReference', () => {
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  test('queries Shared by internal reference and day', async () => {
+    const rows = [{ GUID: 'CCCCDDDD-1111-2222-3333-444455556666', SERIE: 'CCCCDDDD', NUMERO: '123' }];
+    const digifact = fakeDigifact().on('GET', '/Shared', [200, { RESPONSE: rows }]);
+
+    const found = await aClient().findByInternalReference(REFERENCE, '2026-11-03');
+
+    const { params } = digifact.callsTo('GET', '/Shared').at(-1);
+    assert.deepEqual(found, rows);
+    assert.equal(params.DATA1, 'SHARED_GETDTEINFO_BY_INTERNALID');
+    assert.equal(params.DATA2, `REFERENCIA_INTERNA|${REFERENCE}|ISSUEDDATE|2026-11-03`);
+    assert.equal(params.TAXID, '000012345678');
+  });
+
+  test('a Date is read as its day in Guatemala', async () => {
+    const digifact = fakeDigifact().on('GET', '/Shared', [200, { RESPONSE: [] }]);
+
+    await aClient().findByInternalReference(REFERENCE, new Date('2026-11-03T23:30:00-06:00'));
+
+    const { params } = digifact.callsTo('GET', '/Shared').at(-1);
+    assert.equal(params.DATA2, `REFERENCIA_INTERNA|${REFERENCE}|ISSUEDDATE|2026-11-03`);
+  });
+
+  test('no DTE with that reference is an empty list', async () => {
+    fakeDigifact().on('GET', '/Shared', [200, { Respuesta: 0, RESPONSE: [] }]);
+
+    assert.deepEqual(await aClient().findByInternalReference(REFERENCE, '2026-11-03'), []);
+  });
+
+  test('a reply that is not JSON never looks like an absent DTE', async () => {
+    fakeDigifact().on('GET', '/Shared', [200, '<html>Mantenimiento</html>']);
+
+    await assert.rejects(
+      aClient().findByInternalReference(REFERENCE, '2026-11-03'),
+      (error) => error instanceof DigifactApiError && error.retryable === true,
     );
   });
 });

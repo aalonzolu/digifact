@@ -28,6 +28,32 @@ def _adenda_code(doc_type: str) -> str:
     return ADENDA_CODE_ALT if doc_type in _ALT_ADENDA_TYPES else ADENDA_CODE_STD
 
 
+VALIDATE_REFERENCE = "VALIDAR"
+SKIP_REFERENCE_VALIDATION = "NO_VALIDAR"
+_VALIDATION_FLAG = "VALIDAR_REFERENCIA_INTERNA"
+
+
+def apply_internal_reference(payload: dict, reference: str, *, validate: bool) -> dict:
+    """Set the Digifact internal reference (ADENDA ``Code``) of a built payload.
+
+    With ``validate=True`` Digifact rejects a second DTE with the same
+    reference (error 9022), which makes retries safe. DTE types whose builder
+    carries no ADENDA (NCRE, NDEB, FCAM, FESP, CCA) get a minimal one.
+    """
+    flag = {"Name": _VALIDATION_FLAG, "Data": None, "Value": VALIDATE_REFERENCE if validate else SKIP_REFERENCE_VALIDATION}
+    document_info = payload.get("AdditionalDocumentInfo") or {}
+    entries = document_info.setdefault("AdditionalInfo", [])
+    adenda = next((entry for entry in entries if entry.get("Type") == "ADENDA"), None)
+    if adenda is None:
+        entries.append({"Code": reference, "Type": "ADENDA", "AditionalInfo": [flag]})
+    else:
+        adenda["Code"] = reference
+        others = [info for info in adenda.get("AditionalInfo") or [] if info.get("Name") != _VALIDATION_FLAG]
+        adenda["AditionalInfo"] = [flag, *others]
+    payload["AdditionalDocumentInfo"] = document_info
+    return payload
+
+
 # ── Exención temporal de combustibles (Decreto 22-2026) ──────────────────────
 FUEL_EXEMPT_SUPER = "18"
 FUEL_EXEMPT_REGULAR_IMPORTER = "19"

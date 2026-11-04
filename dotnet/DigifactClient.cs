@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -37,6 +39,12 @@ public sealed class DigifactClient : IDisposable
         ["test"]       = "https://testnucgt.digifact.com/api",
         ["production"] = "https://nucgt.digifact.com/gt.com.apinuc/api",
     };
+
+    private const int DuplicateReferenceCode = 9022;
+    private const string DuplicateReferenceGlobalCode = "BUS-003";
+    private const string DuplicateReferenceMessage = "ENVIADA A CERTIFICAR";
+
+    private static readonly InternalReferenceOptions NoInternalReference = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -88,6 +96,12 @@ public sealed class DigifactClient : IDisposable
         _http.Timeout = options.Timeout;
     }
 
+    /// <summary>
+    /// Current bearer token (<c>""</c> before the first login), to keep it in a shared cache
+    /// and pass it as <see cref="DigifactOptions.Token"/> to other processes.
+    /// </summary>
+    public string Token => _token;
+
     // ── Authentication ─────────────────────────────────────────────────────────
 
     private async Task<string> LoginAsync(CancellationToken ct)
@@ -120,51 +134,61 @@ public sealed class DigifactClient : IDisposable
 
     // ── HTTP helpers ───────────────────────────────────────────────────────────
 
-    private async Task<JsonElement> PostAsync(
+    private Task<JsonElement> PostAsync(
         string path, JsonObject body,
         bool withAuth = true, Dictionary<string, string>? queryParams = null,
         CancellationToken ct = default)
     {
         var url = BuildUrl(path, queryParams);
         var json = body.ToJsonString();
-        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        return SendAsync(() => new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json"),
-        };
+        }, withAuth, ct);
+    }
 
-        if (withAuth)
-            request.Headers.Authorization = new AuthenticationHeaderValue(await LoginAsync(ct));
+    private Task<JsonElement> GetAsync(
+        string path, Dictionary<string, string>? queryParams = null,
+        CancellationToken ct = default)
+    {
+        var url = BuildUrl(path, queryParams);
+        return SendAsync(() => new HttpRequestMessage(HttpMethod.Get, url), withAuth: true, ct);
+    }
 
-        using var response = await _http.SendAsync(request, ct);
-        var responseText = await response.Content.ReadAsStringAsync(ct);
+    private async Task<JsonElement> SendAsync(Func<HttpRequestMessage> newRequest, bool withAuth, CancellationToken ct)
+    {
+        var (status, responseText) = await SendOnceAsync(newRequest, withAuth, ct);
 
-        if (!response.IsSuccessStatusCode)
+        if (withAuth && status == HttpStatusCode.Unauthorized)
+        {
+            if (!string.IsNullOrEmpty(_password))
+            {
+                _token = "";
+                (status, responseText) = await SendOnceAsync(newRequest, withAuth, ct);
+            }
+            if (status == HttpStatusCode.Unauthorized)
+                throw new DigifactAuthException("Digifact rejected the token (401).", (int)status, responseText);
+        }
+
+        int code = (int)status;
+        if (code is < 200 or > 299)
         {
             var preview = responseText.Length > 300 ? responseText[..300] + "…" : responseText;
-            throw new DigifactApiException($"HTTP {(int)response.StatusCode}: {preview}", (int)response.StatusCode);
+            throw new DigifactApiException($"HTTP {code}: {preview}", code, responseText, retryable: code >= 500);
         }
 
         return JsonDocument.Parse(responseText).RootElement.Clone();
     }
 
-    private async Task<JsonElement> GetAsync(
-        string path, Dictionary<string, string>? queryParams = null,
-        CancellationToken ct = default)
+    private async Task<(HttpStatusCode Status, string Body)> SendOnceAsync(
+        Func<HttpRequestMessage> newRequest, bool withAuth, CancellationToken ct)
     {
-        var url = BuildUrl(path, queryParams);
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Authorization = new AuthenticationHeaderValue(await LoginAsync(ct));
+        using var request = newRequest();
+        if (withAuth)
+            request.Headers.Authorization = new AuthenticationHeaderValue(await LoginAsync(ct));
 
         using var response = await _http.SendAsync(request, ct);
-        var responseText = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var preview = responseText.Length > 300 ? responseText[..300] + "…" : responseText;
-            throw new DigifactApiException($"HTTP {(int)response.StatusCode}: {preview}", (int)response.StatusCode);
-        }
-
-        return JsonDocument.Parse(responseText).RootElement.Clone();
+        return (response.StatusCode, await response.Content.ReadAsStringAsync(ct));
     }
 
     private string BuildUrl(string path, Dictionary<string, string>? queryParams)
@@ -264,9 +288,16 @@ public sealed class DigifactClient : IDisposable
         }
     }
 
-    private async Task<JsonElement> CertifyAsync(JsonObject payload, CancellationToken ct)
+    private async Task<JsonElement> CertifyAsync(
+        JsonObject payload, string? internalReference, bool validateInternalReference, CancellationToken ct)
     {
         ApplyBranchInfo(payload);
+        if (!string.IsNullOrEmpty(internalReference))
+            DteBuilder.ApplyInternalReference(payload, internalReference, validateInternalReference);
+        else if (validateInternalReference)
+            throw new ArgumentException(
+                "ValidateInternalReference requires InternalReference.", nameof(validateInternalReference));
+
         var data = await PostAsync("/v2/transform/nuc_json", payload, withAuth: true,
             queryParams: new Dictionary<string, string>
             {
@@ -277,35 +308,69 @@ public sealed class DigifactClient : IDisposable
         return CheckResponse(data);
     }
 
-    private JsonElement CheckResponse(JsonElement data)
+    private static JsonElement CheckResponse(JsonElement data)
     {
-        if (!data.TryGetProperty("code", out var codeProp))
+        if (!data.TryGetProperty("code", out var codeProp) || codeProp.ValueKind == JsonValueKind.Null)
             return data;
 
-        int code = codeProp.ValueKind == JsonValueKind.String
-            ? int.Parse(codeProp.GetString() ?? "0")
-            : codeProp.GetInt32();
+        string raw = data.GetRawText();
+        string apiMessage = ApiMessage(data);
+        string msg = apiMessage.Length > 0 ? apiMessage : raw;
+
+        if (IsDuplicateReference(data, codeProp, apiMessage))
+            throw new DigifactDuplicateReferenceException(
+                $"Internal reference already sent to certify: {msg}", DuplicateReferenceCode, raw);
+
+        if (!TryParseCode(codeProp, out int code))
+            throw new DigifactApiException($"API returned an unexpected code {codeProp.GetRawText()}: {raw}", raw: raw);
 
         if (code == 1)
             return data;
-
-        string msg = "";
-        if (data.TryGetProperty("description", out var d))
-            msg = d.GetString() ?? "";
-        else if (data.TryGetProperty("message", out var m))
-            msg = m.GetString() ?? "";
-        else
-            msg = data.GetRawText();
 
         string fullMsg = $"DTE rejected (code={code}): {msg}";
         if (ClassifyError(msg) is string hint)
             fullMsg += $"\n\nHint: {hint}";
 
-        string raw = data.GetRawText();
         if (code == 0)
             throw new DigifactValidationException(fullMsg, code, raw);
         throw new DigifactApiException(fullMsg, code, raw);
     }
+
+    private static string ApiMessage(JsonElement data)
+    {
+        foreach (var key in new[] { "description", "message" })
+            if (data.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String
+                && value.GetString() is { Length: > 0 } text)
+                return text;
+        return "";
+    }
+
+    private static bool TryParseCode(JsonElement codeProp, out int code)
+    {
+        code = 0;
+        return codeProp.ValueKind switch
+        {
+            JsonValueKind.Number => codeProp.TryGetInt32(out code),
+            JsonValueKind.String => int.TryParse(codeProp.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out code),
+            _ => false,
+        };
+    }
+
+    private static bool IsDuplicateReference(JsonElement data, JsonElement codeProp, string apiMessage)
+    {
+        string duplicateCode = DuplicateReferenceCode.ToString(CultureInfo.InvariantCulture);
+        if (TextOf(codeProp) == duplicateCode)
+            return true;
+
+        string globalCode = data.TryGetProperty("codeError", out var codeError) ? TextOf(codeError) : "";
+        string message = apiMessage.ToUpperInvariant();
+        return globalCode.ToUpperInvariant().Contains(DuplicateReferenceGlobalCode)
+            || message.Contains(duplicateCode)
+            || message.Contains(DuplicateReferenceMessage);
+    }
+
+    private static string TextOf(JsonElement value) =>
+        value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : value.GetRawText();
 
     private static string? ClassifyError(string message)
     {
@@ -400,7 +465,7 @@ public sealed class DigifactClient : IDisposable
                 opts.AmountStr, opts.Observaciones, frases: effFrases);
         }
 
-        var data = await CertifyAsync(payload, ct);
+        var data = await CertifyAsync(payload, opts.InternalReference, opts.ValidateInternalReference, ct);
         return DteResult.FromJson(data);
     }
 
@@ -416,8 +481,19 @@ public sealed class DigifactClient : IDisposable
     }
 
     /// <summary>Emit a CCA (Cobro por Cuenta Ajena) FACT + CCA complemento.</summary>
+    public Task<DteResult> CcaInvoiceAsync(
+        BuyerDetails buyer, IReadOnlyList<LineItem> items, IReadOnlyList<CcaCobro> cobros,
+        string? tipoFrase = null, string? escenario = null,
+        CancellationToken ct = default) =>
+        CcaInvoiceAsync(buyer, items, cobros, NoInternalReference, tipoFrase, escenario, ct);
+
+    /// <summary>
+    /// Emit a CCA (Cobro por Cuenta Ajena) FACT + CCA complemento with a Digifact internal
+    /// reference (<see cref="InternalReferenceOptions"/>).
+    /// </summary>
     public async Task<DteResult> CcaInvoiceAsync(
         BuyerDetails buyer, IReadOnlyList<LineItem> items, IReadOnlyList<CcaCobro> cobros,
+        InternalReferenceOptions reference,
         string? tipoFrase = null, string? escenario = null,
         CancellationToken ct = default)
     {
@@ -436,7 +512,7 @@ public sealed class DigifactClient : IDisposable
         }
         var payload = DteBuilder.BuildCca(_taxid, sellerName, sellerAddress, buyerNode, items, cobros,
             _afiliacionIva, tipoFrase: tf, escenario: es, frases: effFrases);
-        var data = await CertifyAsync(payload, ct);
+        var data = await CertifyAsync(payload, reference.InternalReference, reference.ValidateInternalReference, ct);
         return DteResult.FromJson(data);
     }
 
@@ -463,8 +539,20 @@ public sealed class DigifactClient : IDisposable
     /// </code>
     /// </para>
     /// </summary>
+    public Task<DteResult> FuelInvoiceAsync(
+        BuyerDetails buyer, IReadOnlyList<FuelLineItem> items,
+        string? tipoFrase = null, string? escenario = null,
+        IReadOnlyList<FraseItem>? frases = null,
+        CancellationToken ct = default) =>
+        FuelInvoiceAsync(buyer, items, NoInternalReference, tipoFrase, escenario, frases, ct);
+
+    /// <summary>
+    /// Emit a combustible (fuel) FACT invoice with a Digifact internal reference
+    /// (<see cref="InternalReferenceOptions"/>). Items and frases work as in the overload without it.
+    /// </summary>
     public async Task<DteResult> FuelInvoiceAsync(
         BuyerDetails buyer, IReadOnlyList<FuelLineItem> items,
+        InternalReferenceOptions reference,
         string? tipoFrase = null, string? escenario = null,
         IReadOnlyList<FraseItem>? frases = null,
         CancellationToken ct = default)
@@ -486,7 +574,7 @@ public sealed class DigifactClient : IDisposable
         var payload = DteBuilder.BuildFactCombustible(_taxid, sellerName, sellerAddress, buyerNode, resolved,
             _afiliacionIva, tipoFrase: effTf, escenario: effEs,
             frases: effFrases);
-        var data = await CertifyAsync(payload, ct);
+        var data = await CertifyAsync(payload, reference.InternalReference, reference.ValidateInternalReference, ct);
         return DteResult.FromJson(data);
     }
 
@@ -512,8 +600,18 @@ public sealed class DigifactClient : IDisposable
     }
 
     /// <summary>Emit a NCRE (Nota de Crédito).</summary>
+    public Task<DteResult> CreditNoteAsync(
+        BuyerDetails buyer, IReadOnlyList<LineItem> items, OriginDoc origin, string reason,
+        string? tipoFrase = null, string? escenario = null,
+        CancellationToken ct = default) =>
+        CreditNoteAsync(buyer, items, origin, reason, NoInternalReference, tipoFrase, escenario, ct);
+
+    /// <summary>
+    /// Emit a NCRE (Nota de Crédito) with a Digifact internal reference (<see cref="InternalReferenceOptions"/>).
+    /// </summary>
     public async Task<DteResult> CreditNoteAsync(
         BuyerDetails buyer, IReadOnlyList<LineItem> items, OriginDoc origin, string reason,
+        InternalReferenceOptions reference,
         string? tipoFrase = null, string? escenario = null,
         CancellationToken ct = default)
     {
@@ -532,13 +630,23 @@ public sealed class DigifactClient : IDisposable
         }
         var payload = DteBuilder.BuildNcre(_taxid, sellerName, sellerAddress, buyerNode, items,
             origin, reason, _afiliacionIva, tipoFrase: tf, escenario: es, frases: effFrases);
-        var data = await CertifyAsync(payload, ct);
+        var data = await CertifyAsync(payload, reference.InternalReference, reference.ValidateInternalReference, ct);
         return DteResult.FromJson(data);
     }
 
     /// <summary>Emit a NDEB (Nota de Débito).</summary>
+    public Task<DteResult> DebitNoteAsync(
+        BuyerDetails buyer, IReadOnlyList<LineItem> items, OriginDoc origin, string reason,
+        string? tipoFrase = null, string? escenario = null,
+        CancellationToken ct = default) =>
+        DebitNoteAsync(buyer, items, origin, reason, NoInternalReference, tipoFrase, escenario, ct);
+
+    /// <summary>
+    /// Emit a NDEB (Nota de Débito) with a Digifact internal reference (<see cref="InternalReferenceOptions"/>).
+    /// </summary>
     public async Task<DteResult> DebitNoteAsync(
         BuyerDetails buyer, IReadOnlyList<LineItem> items, OriginDoc origin, string reason,
+        InternalReferenceOptions reference,
         string? tipoFrase = null, string? escenario = null,
         CancellationToken ct = default)
     {
@@ -557,7 +665,7 @@ public sealed class DigifactClient : IDisposable
         }
         var payload = DteBuilder.BuildNdeb(_taxid, sellerName, sellerAddress, buyerNode, items,
             origin, reason, _afiliacionIva, tipoFrase: tf, escenario: es, frases: effFrases);
-        var data = await CertifyAsync(payload, ct);
+        var data = await CertifyAsync(payload, reference.InternalReference, reference.ValidateInternalReference, ct);
         return DteResult.FromJson(data);
     }
 
@@ -761,6 +869,43 @@ public sealed class DigifactClient : IDisposable
             ["DATA2"]    = $"AUTHNUMBER|{authNumber}",
             ["USERNAME"] = _username,
         }, ct);
+
+    /// <summary>
+    /// Find the DTEs certified with an internal reference on a given day (SHARED_GETDTEINFO_BY_INTERNALID).
+    /// </summary>
+    /// <param name="reference">Internal reference sent as <see cref="InvoiceOptions.InternalReference"/>.</param>
+    /// <param name="issuedOn">Issue date in <c>"YYYY-MM-DD"</c> format.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>
+    /// The <c>RESPONSE</c> rows (<c>GUID</c>, <c>SERIE</c>, <c>NUMERO</c>, <c>ESTATUS</c>…), or an empty
+    /// list when Digifact has no DTE with that reference on that day.
+    /// </returns>
+    public async Task<IReadOnlyList<JsonElement>> FindByInternalReferenceAsync(
+        string reference, string issuedOn, CancellationToken ct = default)
+    {
+        var data = await GetAsync("/Shared", new Dictionary<string, string>
+        {
+            ["COUNTRY"]  = "GT",
+            ["TAXID"]    = _paddedTaxid,
+            ["DATA1"]    = "SHARED_GETDTEINFO_BY_INTERNALID",
+            ["DATA2"]    = $"REFERENCIA_INTERNA|{reference}|ISSUEDDATE|{issuedOn}",
+            ["USERNAME"] = _username,
+        }, ct);
+
+        if (data.ValueKind != JsonValueKind.Object
+            || !data.TryGetProperty("RESPONSE", out var rows)
+            || rows.ValueKind != JsonValueKind.Array)
+            return Array.Empty<JsonElement>();
+        return rows.EnumerateArray().Where(row => row.ValueKind == JsonValueKind.Object).ToList();
+    }
+
+    /// <inheritdoc cref="FindByInternalReferenceAsync(string, string, CancellationToken)"/>
+    /// <param name="reference">Internal reference sent as <see cref="InvoiceOptions.InternalReference"/>.</param>
+    /// <param name="issuedOn">Issue date.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public Task<IReadOnlyList<JsonElement>> FindByInternalReferenceAsync(
+        string reference, DateOnly issuedOn, CancellationToken ct = default) =>
+        FindByInternalReferenceAsync(reference, issuedOn.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ct);
 
     /// <summary>Retrieve a DTE document.</summary>
     public Task<JsonElement> GetDteAsync(string authNumber, string format = "JSON", CancellationToken ct = default) =>
