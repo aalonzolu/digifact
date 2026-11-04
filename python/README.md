@@ -370,7 +370,9 @@ del RTU en el portal de SAT.
 
 ## Referencia de métodos
 
-Todos los métodos de emisión devuelven `DteResult` con `result.auth_number`, `series`, `number`, `issue_datetime`, `raw`.
+Todos los métodos de emisión devuelven `DteResult` con `result.auth_number`, `series`, `number`, `issue_datetime`, `enrolled_timestamp`, `additional_info` (acuse de la SAT) y `raw`.
+
+`invoice()`, `cca_invoice()`, `fuel_invoice()`, `credit_note()` y `debit_note()` aceptan además `internal_reference` y `validate_internal_reference` (ver [Emisión sin duplicados](#emisión-sin-duplicados-referencia-interna)).
 
 | Método | Firma | Descripción |
 |--------|-------|-------------|
@@ -385,12 +387,46 @@ Todos los métodos de emisión devuelven `DteResult` con `result.auth_number`, `
 | `lookup_cui()` | `lookup_cui(cui)` | Consulta SAT por CUI (DPI). Devuelve `{"cui","name","status"}`. El nombre viene como `"APELLIDOS, NOMBRES"`, tal como lo registra SAT. |
 | `get_dte()` | `get_dte(auth_number, fmt="JSON")` | Recupera el DTE (`"JSON"`, `"XML"`, `"HTML"`, `"PDF"`). |
 | `get_dte_info()` | `get_dte_info(auth_number)` | Metadatos del DTE. |
+| `find_by_internal_reference()` | `find_by_internal_reference(reference, issued_on)` | DTE certificados con esa referencia interna ese día (`SHARED_GETDTEINFO_BY_INTERNALID`). Devuelve `list[dict]`, vacía si no hay. |
 
 ### Parámetros comunes
 
 - **`buyer`**: `"CF"` (consumidor final), un NIT string (`"12345678"` — se consulta el nombre), un CUI string de 13 dígitos (`"1234567890123"` — se consulta el nombre), un dict CUI (`{"type":"CUI","taxid":...}` — se consulta el nombre; con `"name"` explícito no se consulta) o un dict NIT explícito (`{"taxid","name","address","city","district","state","country","email"}`).
 - **`items`**: lista de dicts con `description` (str, req), `price` (float/Decimal, req), `qty` (1), `type` (`"Servicio"`/`"Bien"`), `unit_of_measure` (`"UNI"`), `discount` (opcional).
 - **`origin`** (NCRE/NDEB): `{"auth_number": ..., "date": "YYYY-MM-DD", "series": ..., "number": ...}`.
+
+## Emisión sin duplicados (referencia interna)
+
+Digifact guarda una referencia interna por DTE (el `Code` de la ADENDA). Con `validate_internal_reference=True`
+rechaza un segundo DTE con la misma referencia, así que un envío que se quedó sin respuesta se puede repetir sin
+emitir dos veces:
+
+```python
+import uuid
+from digifact_sdk import DigifactDuplicateReferenceError
+
+referencia = str(uuid.uuid4())  # un GUID; Digifact también acepta referencias más cortas
+try:
+    result = client.invoice("CF", items, internal_reference=referencia, validate_internal_reference=True)
+except DigifactDuplicateReferenceError:
+    # ya se había enviado: el DTE pudo quedar certificado
+    filas = client.find_by_internal_reference(referencia, issued_on="2026-11-03")
+```
+
+* Sin `internal_reference` el payload no cambia: se envía la referencia fija de siempre con `NO_VALIDAR`.
+* NCRE, NDEB, FCAM, FESP y CCA reciben una ADENDA mínima con la referencia, junto a su complemento.
+* `SHARED_GETDTEINFO_BY_INTERNALID` y el error `9022` no están en la documentación de Digifact para
+  Guatemala, pero se verificaron en el ambiente de pruebas el 3 de noviembre de 2026: el duplicado llega con
+  `code` 3000 y `[9022]` en la descripción, y la consulta encuentra el DTE sin prefijo en `DATA2`.
+
+## Token y reintentos
+
+* Si Digifact responde `401` (token vencido) y el cliente tiene `password`, el SDK inicia sesión otra vez y repite la
+  petición una sola vez. Con solo `token`, lanza `DigifactAuthError`.
+* `client.token` devuelve el token vigente, para guardarlo en un caché compartido y pasarlo como `token=` a otros
+  procesos.
+* Los errores HTTP traen `exc.code` (el estado HTTP) y `exc.retryable`: `True` para 5xx, `False` para 4xx (`400`,
+  `406` documento inválido, `415` tipo de contenido).
 
 ## Establecimiento (sucursal)
 
@@ -436,7 +472,8 @@ python -m pytest tests/ -v
 from digifact_sdk import (
     DigifactError,          # base
     DigifactAuthError,      # fallo de autenticación
-    DigifactApiError,       # error HTTP / de API
+    DigifactApiError,       # error HTTP / de API (.retryable)
+    DigifactDuplicateReferenceError, # referencia interna ya enviada (9022)
     DigifactValidationError, # rechazo de SAT
     DigifactNitNotFoundError, # NIT no encontrado
 )

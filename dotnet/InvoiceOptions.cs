@@ -26,6 +26,33 @@ public sealed class InvoiceOptions
 
     /// <summary>Override CodigoEscenario for this call. Falls back to client-level override, then to defaults table.</summary>
     public string? Escenario { get; init; }
+
+    /// <summary>
+    /// Digifact internal reference (ADENDA <c>Code</c>). Digifact suggests a GUID, but shorter references are accepted.
+    /// Can be queried with <see cref="DigifactClient.FindByInternalReferenceAsync(string, string, CancellationToken)"/>.
+    /// </summary>
+    public string? InternalReference { get; init; }
+
+    /// <summary>
+    /// When <c>true</c>, Digifact rejects a second DTE with the same <see cref="InternalReference"/>
+    /// (<see cref="DigifactDuplicateReferenceException"/>), so a timed-out request can be retried
+    /// without issuing twice. Requires <see cref="InternalReference"/>.
+    /// </summary>
+    public bool ValidateInternalReference { get; init; }
+}
+
+/// <summary>
+/// Digifact internal reference for <c>CcaInvoiceAsync</c>, <c>FuelInvoiceAsync</c>,
+/// <c>CreditNoteAsync</c> and <c>DebitNoteAsync</c>; <see cref="DigifactClient.InvoiceAsync"/>
+/// takes the same values through <see cref="InvoiceOptions"/>.
+/// </summary>
+public sealed class InternalReferenceOptions
+{
+    /// <inheritdoc cref="InvoiceOptions.InternalReference"/>
+    public string? InternalReference { get; init; }
+
+    /// <inheritdoc cref="InvoiceOptions.ValidateInternalReference"/>
+    public bool ValidateInternalReference { get; init; }
 }
 
 /// <summary>A payment instalment for FCAM invoices.</summary>

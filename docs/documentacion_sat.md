@@ -481,6 +481,10 @@ NIT|<nit_a_consultar>
 
 Consulta por referencia interna. Documentado en SHARED TOOL API, no en el PDF NUC 2.0.5.
 
+Verificado en el ambiente de pruebas el 2026-11-03: con `DATA2` sin prefijo devuelve la fila del DTE (`GUID`, `SERIE`,
+`NUMERO`, `ESTATUS`, `FECHA_DE_CERTIFICACION`…). Con `STAXID|<NIT de 12 dígitos>|` delante también funciona; con el NIT
+sin rellenar (`STAXID|` o `TAXID|`) devuelve cero filas.
+
 **DATA2**
 ```text
 REFERENCIA_INTERNA|<valor>|ISSUEDDATE|<yyyy-mm-dd>
@@ -905,6 +909,9 @@ La adenda comercial es una estructura Digifact, no trasladada a SAT. Se usa para
 - `NO_VALIDAR` solo almacena la referencia.
 - Con validación, el tiempo de certificación puede aumentar entre 0.45 y 1 segundo.
 - Si una referencia interna ya existe y se intenta certificar de nuevo con validación activa, la documentación muestra error `9022`.
+- Verificado en el ambiente de pruebas el 2026-11-03: el duplicado responde HTTP 200 con `code: 3000`, `message` "La referencia
+  INTERNA, ya ha sido enviada a certificar" y `description` que empieza con `[9022]` y nombra el UUID del DTE original.
+  Una referencia de 20 caracteres se aceptó con `VALIDAR`: no hace falta un GUID de 36.
 
 **Estructura típica observada**
 ```json

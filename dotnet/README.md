@@ -278,7 +278,9 @@ var client = new DigifactClient(new DigifactOptions {
 
 ## Referencia de métodos
 
-Todos los métodos de emisión son `async`. Devuelven `DteResult` con `.AuthNumber`, `.Series`, `.Number`, `.IssueDateTime`, `.Raw`.
+Todos los métodos de emisión son `async`. Devuelven `DteResult` con `.AuthNumber`, `.Series`, `.Number`, `.IssueDateTime`, `.EnrolledTimestamp`, `.AdditionalInfo` (acuse de la SAT, `JsonElement`) y `.Raw`.
+
+`InvoiceAsync()` acepta además `InternalReference` y `ValidateInternalReference` en `InvoiceOptions`; `CcaInvoiceAsync()`, `FuelInvoiceAsync()`, `CreditNoteAsync()` y `DebitNoteAsync()` tienen una sobrecarga que los recibe en un `InternalReferenceOptions` (ver [Emisión sin duplicados](#emisión-sin-duplicados-referencia-interna)).
 
 | Método | Firma | Descripción |
 |--------|-------|-------------|
@@ -293,13 +295,61 @@ Todos los métodos de emisión son `async`. Devuelven `DteResult` con `.AuthNumb
 | `LookupCuiAsync()` | `LookupCuiAsync(string cui, CancellationToken ct = default)` | Consulta SAT por CUI (DPI). Devuelve `CuiInfo`. El nombre viene como `"APELLIDOS, NOMBRES"`, tal como lo registra SAT. |
 | `GetDteAsync()` | `GetDteAsync(string authNumber, string format = "JSON", ...)` | Recupera el DTE. |
 | `GetDteInfoAsync()` | `GetDteInfoAsync(string authNumber, ...)` | Metadatos del DTE. |
+| `FindByInternalReferenceAsync()` | `FindByInternalReferenceAsync(string reference, DateOnly issuedOn, ...)` (o `string issuedOn` `"YYYY-MM-DD"`) | DTE certificados con esa referencia interna ese día (`SHARED_GETDTEINFO_BY_INTERNALID`). Devuelve `IReadOnlyList<JsonElement>`, vacía si no hay. |
 
 ### Parámetros comunes
 
 - **`BuyerDetails`**: construye con `BuyerDetails.Cf()`, `BuyerDetails.FromNit(nit, name, address, city, ...)`, o `BuyerDetails.FromCui(cui, name)`. Si pasas sólo `"CF"` o un string de NIT a `InvoiceAsync`, hay sobrecargas para evitar construir el objeto manualmente.
 - **`LineItem`**: `Description` (req), `Price` (req), `Qty` (1), `Type` (`"Servicio"`/`"Bien"`), `UnitOfMeasure` (`"UNI"`), `Discount` (opcional).
-- **`InvoiceOptions`**: `DocType`, `PaymentTerms` (req. para FCAM), `AmountStr`, `Observaciones`, `TipoPersoneria`, `TipoFrase`, `Escenario`.
+- **`InvoiceOptions`**: `DocType`, `PaymentTerms` (req. para FCAM), `AmountStr`, `Observaciones`, `TipoPersoneria`, `TipoFrase`, `Escenario`, `InternalReference`, `ValidateInternalReference`.
+- **`InternalReferenceOptions`** (CCA, combustible, NCRE, NDEB): `InternalReference`, `ValidateInternalReference`.
 - **`OriginDoc`** (NCRE/NDEB): `record (string AuthNumber, string Date, string Series, string Number)`.
+
+## Emisión sin duplicados (referencia interna)
+
+Digifact guarda una referencia interna por DTE (el `Code` de la ADENDA). Con `ValidateInternalReference = true`
+rechaza un segundo DTE con la misma referencia, así que un envío que se quedó sin respuesta se puede repetir sin
+emitir dos veces:
+
+```csharp
+var referencia = Guid.NewGuid().ToString();  // un GUID; Digifact también acepta referencias más cortas
+try
+{
+    var result = await client.InvoiceAsync("CF", items, new InvoiceOptions
+    {
+        InternalReference         = referencia,
+        ValidateInternalReference = true,
+    });
+}
+catch (DigifactDuplicateReferenceException)
+{
+    // ya se había enviado: el DTE pudo quedar certificado
+    var filas = await client.FindByInternalReferenceAsync(referencia, new DateOnly(2026, 11, 3));
+}
+
+// Los demás métodos de emisión tienen una sobrecarga con InternalReferenceOptions
+await client.CreditNoteAsync(buyer, items, origin, "Devolución", new InternalReferenceOptions
+{
+    InternalReference         = referencia,
+    ValidateInternalReference = true,
+});
+```
+
+- Sin `InternalReference` el payload no cambia: se envía la referencia fija de siempre con `NO_VALIDAR`.
+- `ValidateInternalReference = true` sin `InternalReference` lanza `ArgumentException`.
+- NCRE, NDEB, FCAM, FESP y CCA reciben una ADENDA mínima con la referencia, junto a su complemento.
+- `SHARED_GETDTEINFO_BY_INTERNALID` y el error `9022` no están en la documentación de Digifact para
+  Guatemala, pero se verificaron en el ambiente de pruebas el 3 de noviembre de 2026: el duplicado llega con
+  `code` 3000 y `[9022]` en la descripción, y la consulta encuentra el DTE sin prefijo en `DATA2`.
+
+## Token y reintentos
+
+- Si Digifact responde `401` (token vencido) y el cliente tiene `Password`, el SDK inicia sesión otra vez y repite la
+  petición una sola vez. Con solo `Token`, lanza `DigifactAuthException`.
+- `client.Token` devuelve el token vigente, para guardarlo en un caché compartido y pasarlo como `Token` en
+  `DigifactOptions` a otros procesos.
+- Los errores HTTP traen `ex.ApiCode` (el estado HTTP) y `ex.Retryable`: `true` para 5xx, `false` para 4xx (`400`,
+  `406` documento inválido, `415` tipo de contenido).
 
 ## Establecimiento (sucursal)
 
@@ -329,7 +379,7 @@ try
 }
 catch (DigifactValidationException ex)   // rechazo de SAT
 {
-    Console.WriteLine($"SAT rechazó (code={ex.Code}): {ex.Message}");
+    Console.WriteLine($"SAT rechazó (code={ex.ApiCode}): {ex.Message}");
     Console.WriteLine(ex.Raw);
 }
 catch (DigifactAuthException ex)          // fallo de autenticación
@@ -340,9 +390,13 @@ catch (DigifactNitNotFoundException)      // NIT no encontrado
 {
     // ...
 }
-catch (DigifactApiException ex)           // error HTTP / de API
+catch (DigifactDuplicateReferenceException ex) // referencia interna ya enviada (9022)
 {
-    Console.WriteLine($"API: {ex.Message}");
+    Console.WriteLine($"Ya enviado: {ex.Message}");
+}
+catch (DigifactApiException ex)           // error HTTP / de API (.Retryable)
+{
+    Console.WriteLine($"API ({ex.ApiCode}, reintentable={ex.Retryable}): {ex.Message}");
 }
 catch (DigifactException ex)              // base
 {

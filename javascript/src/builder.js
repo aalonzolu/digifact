@@ -10,12 +10,46 @@
 import { gtNow, calcLine, calcFuelLine, fmt, sumProducts } from './tax.js';
 
 const NO_IVA_TYPES = new Set(['FPEQ', 'NABN', 'RDON', 'RECI']);
-const ADENDA_CODE_STD = 'FRONT-263C-444B-89BA-6F87EC1330C0';
+export const ADENDA_CODE_STD = 'FRONT-263C-444B-89BA-6F87EC1330C0';
 const ADENDA_CODE_ALT = 'FRONT-67C1-4545-BA1E-AA3C115E18D6';
 const ALT_ADENDA_TYPES = new Set(['NABN', 'RDON', 'RECI']);
 
 function adendaCode(docType) {
   return ALT_ADENDA_TYPES.has(docType) ? ADENDA_CODE_ALT : ADENDA_CODE_STD;
+}
+
+export const VALIDATE_REFERENCE = 'VALIDAR';
+export const SKIP_REFERENCE_VALIDATION = 'NO_VALIDAR';
+const VALIDATION_FLAG = 'VALIDAR_REFERENCIA_INTERNA';
+
+/**
+ * Set the Digifact internal reference (ADENDA `Code`) of a built payload.
+ *
+ * With `validate: true` Digifact rejects a second DTE with the same reference
+ * (error 9022). DTE types whose builder carries no ADENDA (NCRE, NDEB, FCAM,
+ * FESP, CCA) get a minimal one.
+ *
+ * @param {object} payload
+ * @param {string} reference
+ * @param {object} opts
+ * @param {boolean} opts.validate
+ * @returns {object}
+ */
+export function applyInternalReference(payload, reference, { validate }) {
+  const flag = { Name: VALIDATION_FLAG, Data: null, Value: validate ? VALIDATE_REFERENCE : SKIP_REFERENCE_VALIDATION };
+  const documentInfo = payload.AdditionalDocumentInfo || {};
+  documentInfo.AdditionalInfo ??= [];
+  const entries = documentInfo.AdditionalInfo;
+  const adenda = entries.find(entry => entry.Type === 'ADENDA');
+  if (adenda) {
+    adenda.Code = reference;
+    const others = (adenda.AditionalInfo || []).filter(info => info.Name !== VALIDATION_FLAG);
+    adenda.AditionalInfo = [flag, ...others];
+  } else {
+    entries.push({ Code: reference, Type: 'ADENDA', AditionalInfo: [flag] });
+  }
+  payload.AdditionalDocumentInfo = documentInfo;
+  return payload;
 }
 
 // ── Exención temporal de combustibles (Decreto 22-2026) ──────────────────────

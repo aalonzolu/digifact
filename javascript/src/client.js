@@ -7,6 +7,7 @@ import {
   DigifactError,
   DigifactAuthError,
   DigifactApiError,
+  DigifactDuplicateReferenceError,
   DigifactValidationError,
   DigifactNitNotFoundError,
   classifyError,
@@ -31,6 +32,7 @@ import {
   defaultFrase,
   resolveFuelFrases,
   isExemptFuelItem,
+  applyInternalReference,
 } from './builder.js';
 
 const BASE_URLS = {
@@ -40,6 +42,37 @@ const BASE_URLS = {
 
 /** Digits in a Guatemalan CUI (DPI); a NIT never reaches this length. */
 const CUI_LENGTH = 13;
+
+const HTTP_UNAUTHORIZED = 401;
+const DUPLICATE_REFERENCE_CODE = 9022;
+const DUPLICATE_REFERENCE_GLOBAL_CODE = 'BUS-003';
+const DUPLICATE_REFERENCE_MESSAGE = 'ENVIADA A CERTIFICAR';
+const GT_UTC_OFFSET_MS = -6 * 60 * 60_000;
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isDuplicateReference(data, code) {
+  if (String(code) === String(DUPLICATE_REFERENCE_CODE)) return true;
+  const globalCode = String(data.codeError || '').toUpperCase();
+  const message = String(data.description || data.message || '').toUpperCase();
+  return globalCode.includes(DUPLICATE_REFERENCE_GLOBAL_CODE)
+    || message.includes(String(DUPLICATE_REFERENCE_CODE))
+    || message.includes(DUPLICATE_REFERENCE_MESSAGE);
+}
+
+function raiseForStatus({ ok, status, text, data }) {
+  if (ok) return;
+  const preview = text.length > 300 ? text.slice(0, 300) + '…' : text;
+  throw new DigifactApiError(`HTTP ${status}: ${preview}`, status, data, { retryable: status >= 500 });
+}
+
+/** A `Date` is read as its calendar day in Guatemala (UTC-6). */
+function gtIsoDay(day) {
+  if (!(day instanceof Date)) return day;
+  return new Date(day.getTime() + GT_UTC_OFFSET_MS).toISOString().slice(0, 10);
+}
 
 /**
  * Tidy spacing only — SAT's "APELLIDOS, NOMBRES" string is kept verbatim otherwise.
@@ -57,12 +90,14 @@ function normalizeCuiName(name) {
 // ── DteResult ─────────────────────────────────────────────────────────────────
 
 export class DteResult {
-  constructor(authNumber, series, number, issueDateTime, raw = {}) {
+  constructor(authNumber, series, number, issueDateTime, raw = {}, enrolledTimestamp = '', additionalInfo = {}) {
     this.authNumber = authNumber;
     this.series = series;
     this.number = number;
     this.issueDateTime = issueDateTime;
     this.raw = raw;
+    this.enrolledTimestamp = enrolledTimestamp;
+    this.additionalInfo = additionalInfo;
   }
 
   static fromResponse(data) {
@@ -71,7 +106,8 @@ export class DteResult {
     const number = String(data.serial ?? data.Numero ?? '');
     const tsRaw = data.issuedTimeStamp ?? data.FechaEmision ?? '';
     const issueDateTime = tsRaw.includes('T') ? tsRaw.replace('T', ' ') : tsRaw;
-    return new DteResult(auth, series, number, issueDateTime, data);
+    const additionalInfo = isPlainObject(data.additionalInfo) ? data.additionalInfo : {};
+    return new DteResult(auth, series, number, issueDateTime, data, data.enrolledTimeStamp || '', additionalInfo);
   }
 }
 
@@ -199,6 +235,11 @@ export class DigifactClient {
     return this.toString();
   }
 
+  /** Current bearer token ("" before the first login), to cache it across processes. */
+  get token() {
+    return this._token;
+  }
+
   // ── Authentication ──────────────────────────────────────────────────────────
 
   async _login() {
@@ -206,7 +247,12 @@ export class DigifactClient {
     if (!this.password) throw new DigifactAuthError('password or token is required');
 
     const fullUsername = `GT.${this.paddedTaxid}.${this.username}`;
-    const data = await this._post('/login/get_token', { Username: fullUsername, Password: this.password }, false);
+    const resp = await this._request('POST', '/login/get_token', {
+      headers: { 'Content-Type': 'application/json' },
+      body: { Username: fullUsername, Password: this.password },
+    });
+    raiseForStatus(resp);
+    const data = resp.data;
 
     const tok = data.Token ?? data.token;
     if (!tok) throw new DigifactAuthError('Login succeeded but response contained no token', 0, data);
@@ -221,12 +267,9 @@ export class DigifactClient {
 
   // ── HTTP helpers ─────────────────────────────────────────────────────────────
 
-  async _post(path, body, withAuth = true, queryParams = {}) {
+  async _request(method, path, { headers, body, queryParams = {} } = {}) {
     const url = new URL(this.baseUrl + path);
     for (const [k, v] of Object.entries(queryParams)) url.searchParams.set(k, v);
-
-    const headers = { 'Content-Type': 'application/json' };
-    if (withAuth) headers.Authorization = await this._login();
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
@@ -234,9 +277,9 @@ export class DigifactClient {
     let resp;
     try {
       resp = await fetch(url.toString(), {
-        method: 'POST',
+        method,
         headers,
-        body: JSON.stringify(body),
+        body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal,
       });
     } finally {
@@ -246,38 +289,21 @@ export class DigifactClient {
     const text = await resp.text();
     let data;
     try { data = JSON.parse(text); } catch { data = { _text: text }; }
-
-    if (!resp.ok) {
-      const preview = text.length > 300 ? text.slice(0, 300) + '…' : text;
-      throw new DigifactApiError(`HTTP ${resp.status}: ${preview}`, resp.status, data);
-    }
-    return data;
+    return { status: resp.status, ok: resp.ok, text, data };
   }
 
-  async _get(path, queryParams = {}) {
-    const url = new URL(this.baseUrl + path);
-    for (const [k, v] of Object.entries(queryParams)) url.searchParams.set(k, v);
-
-    const headers = await this._authHeaders();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeout);
-
-    let resp;
-    try {
-      resp = await fetch(url.toString(), { headers, signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
+  /** Send an authenticated request, logging in again once if the token expired (401). */
+  async _send(method, path, { body, queryParams } = {}) {
+    let resp = await this._request(method, path, { headers: await this._authHeaders(), body, queryParams });
+    if (resp.status === HTTP_UNAUTHORIZED && this.password) {
+      this._token = '';
+      resp = await this._request(method, path, { headers: await this._authHeaders(), body, queryParams });
     }
-
-    const text = await resp.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = { _text: text }; }
-
-    if (!resp.ok) {
-      const preview = text.length > 300 ? text.slice(0, 300) + '…' : text;
-      throw new DigifactApiError(`HTTP ${resp.status}: ${preview}`, resp.status, data);
+    if (resp.status === HTTP_UNAUTHORIZED) {
+      throw new DigifactAuthError('Digifact rejected the token (401)', HTTP_UNAUTHORIZED, resp.data);
     }
-    return data;
+    raiseForStatus(resp);
+    return resp.data;
   }
 
   // ── Seller info ─────────────────────────────────────────────────────────────
@@ -351,12 +377,23 @@ export class DigifactClient {
     return payload;
   }
 
-  async _certify(payload) {
+  async _certify(payload, {
+    internal_reference: internalReference = null,
+    validate_internal_reference: validateInternalReference = false,
+  } = {}) {
     payload = this._applyBranchInfo(payload);
-    const data = await this._post('/v2/transform/nuc_json', payload, true, {
-      TAXID: this.paddedTaxid,
-      FORMAT: 'XML|HTML|PDF',
-      USERNAME: this.username,
+    if (internalReference) {
+      payload = applyInternalReference(payload, internalReference, { validate: validateInternalReference });
+    } else if (validateInternalReference) {
+      throw new TypeError('validate_internal_reference requires internal_reference');
+    }
+    const data = await this._send('POST', '/v2/transform/nuc_json', {
+      body: payload,
+      queryParams: {
+        TAXID: this.paddedTaxid,
+        FORMAT: 'XML|HTML|PDF',
+        USERNAME: this.username,
+      },
     });
     return this._checkResponse(data);
   }
@@ -368,7 +405,16 @@ export class DigifactClient {
       if (auth) return data;
       return data;
     }
+    if (isDuplicateReference(data, code)) {
+      const msg = data.description || data.message || JSON.stringify(data);
+      throw new DigifactDuplicateReferenceError(
+        `Internal reference already sent to certify: ${msg}`, DUPLICATE_REFERENCE_CODE, data
+      );
+    }
     const codeInt = parseInt(code, 10);
+    if (Number.isNaN(codeInt)) {
+      throw new DigifactApiError(`API returned an unexpected code ${JSON.stringify(code)}: ${JSON.stringify(data)}`, null, data);
+    }
     if (codeInt === 1) return data;
 
     const msg = data.description ?? data.message ?? JSON.stringify(data);
@@ -407,6 +453,11 @@ export class DigifactClient {
    * @param {string} [opts.tipo_personeria] Required for RDON
    * @param {string} [opts.tipo_frase]      Override TipoFrase for this call
    * @param {string} [opts.escenario]       Override CodigoEscenario for this call
+   * @param {string} [opts.internal_reference]  Digifact internal reference (ADENDA `Code`).
+   *   Digifact suggests a GUID, but shorter references are accepted. Can be queried with `findByInternalReference()`.
+   * @param {boolean} [opts.validate_internal_reference]  When true, Digifact rejects a second DTE
+   *   with the same `internal_reference` (`DigifactDuplicateReferenceError`), so a timed-out
+   *   request can be retried without issuing twice.
    * @returns {Promise<DteResult>}
    */
   async invoice(buyer, items, opts = {}) {
@@ -455,12 +506,13 @@ export class DigifactClient {
         break;
     }
 
-    const data = await this._certify(payload);
+    const data = await this._certify(payload, opts);
     return DteResult.fromResponse(data);
   }
 
   /**
    * Emit a CCA (Cobro por Cuenta Ajena) FACT+CCA complemento.
+   * `opts.internal_reference` and `opts.validate_internal_reference` work as in `invoice()`.
    * @returns {Promise<DteResult>}
    */
   async ccaInvoice(buyer, items, cobros, opts = {}) {
@@ -474,7 +526,7 @@ export class DigifactClient {
       [tipoFrase, escenario] = this._resolveFrase('FACT', opts);
     }
     const payload = buildCca(this.taxid, sellerName, sellerAddress, buyerObj, items, cobros, { afiliacion: this.afiliacionIva, tipoFrase, escenario, frases: effFrases });
-    const data = await this._certify(payload);
+    const data = await this._certify(payload, opts);
     return DteResult.fromResponse(data);
   }
 
@@ -505,6 +557,8 @@ export class DigifactClient {
    *       frases: [{ tipo_frase: '1', escenario: '1' },
    *                { tipo_frase: '9', escenario: '18' },
    *                { tipo_frase: '9', escenario: '19' }]
+   * @param {string} [opts.internal_reference]  As in `invoice()`.
+   * @param {boolean} [opts.validate_internal_reference]  As in `invoice()`.
    * @returns {Promise<DteResult>}
    *
    * @example
@@ -542,7 +596,7 @@ export class DigifactClient {
       escenario: effEscenario,
       frases: effFrases,
     });
-    const data = await this._certify(payload);
+    const data = await this._certify(payload, opts);
     return DteResult.fromResponse(data);
   }
 
@@ -566,6 +620,7 @@ export class DigifactClient {
 
   /**
    * Emit a NCRE (Nota de Crédito).
+   * `opts.internal_reference` and `opts.validate_internal_reference` work as in `invoice()`.
    * @param {object} origin  {auth_number, date, series, number}
    * @returns {Promise<DteResult>}
    */
@@ -580,12 +635,13 @@ export class DigifactClient {
       [tipoFrase, escenario] = this._resolveFrase('NCRE', opts);
     }
     const payload = buildNcre(this.taxid, sellerName, sellerAddress, buyerObj, items, origin, reason, { afiliacion: this.afiliacionIva, tipoFrase, escenario, frases: effFrases });
-    const data = await this._certify(payload);
+    const data = await this._certify(payload, opts);
     return DteResult.fromResponse(data);
   }
 
   /**
    * Emit a NDEB (Nota de Débito).
+   * `opts.internal_reference` and `opts.validate_internal_reference` work as in `invoice()`.
    * @param {object} origin  {auth_number, date, series, number}
    * @returns {Promise<DteResult>}
    */
@@ -600,7 +656,7 @@ export class DigifactClient {
       [tipoFrase, escenario] = this._resolveFrase('NDEB', opts);
     }
     const payload = buildNdeb(this.taxid, sellerName, sellerAddress, buyerObj, items, origin, reason, { afiliacion: this.afiliacionIva, tipoFrase, escenario, frases: effFrases });
-    const data = await this._certify(payload);
+    const data = await this._certify(payload, opts);
     return DteResult.fromResponse(data);
   }
 
@@ -610,13 +666,15 @@ export class DigifactClient {
    * @returns {Promise<object>}
    */
   async cancel(authNumber, receiverId, issueDateTime, reason = 'Anulación') {
-    return this._post('/CancelFelGT', {
-      Taxid: this.taxid,
-      Autorizacion: authNumber,
-      IdReceptor: receiverId,
-      FechaEmisionDocumentoAnular: issueDateTime,
-      MotivoAnulacion: reason,
-      Username: this.username,
+    return this._send('POST', '/CancelFelGT', {
+      body: {
+        Taxid: this.taxid,
+        Autorizacion: authNumber,
+        IdReceptor: receiverId,
+        FechaEmisionDocumentoAnular: issueDateTime,
+        MotivoAnulacion: reason,
+        Username: this.username,
+      },
     });
   }
 
@@ -626,14 +684,16 @@ export class DigifactClient {
    * @returns {Promise<object>}
    */
   async creditNoteTotal(authNumber, issueDateTime, reason = 'Nota de crédito total', reference = '') {
-    return this._post('/cert/ncredtotal', {
-      Staxid: this.taxid,
-      Authnumber: authNumber,
-      FechaEmision: issueDateTime,
-      MotivoAjuste: reason,
-      ReferenciaInterna: reference,
-      Formatos: 'xml|html|pdf',
-      Username: this.username,
+    return this._send('POST', '/cert/ncredtotal', {
+      body: {
+        Staxid: this.taxid,
+        Authnumber: authNumber,
+        FechaEmision: issueDateTime,
+        MotivoAjuste: reason,
+        ReferenciaInterna: reference,
+        Formatos: 'xml|html|pdf',
+        Username: this.username,
+      },
     });
   }
 
@@ -646,12 +706,14 @@ export class DigifactClient {
     const digits = nit.replace(/\D/g, '');
     if (this._nitCache.has(digits)) return this._nitCache.get(digits);
 
-    const data = await this._get('/Shared', {
-      COUNTRY: 'GT',
-      TAXID: this.paddedTaxid,
-      DATA1: 'SHARED_GETINFONITcom',
-      DATA2: `NIT|${digits}`,
-      USERNAME: this.username,
+    const data = await this._send('GET', '/Shared', {
+      queryParams: {
+        COUNTRY: 'GT',
+        TAXID: this.paddedTaxid,
+        DATA1: 'SHARED_GETINFONITcom',
+        DATA2: `NIT|${digits}`,
+        USERNAME: this.username,
+      },
     });
 
     const normalized = this._parseNitResponse(digits, data);
@@ -690,12 +752,14 @@ export class DigifactClient {
     const digits = cui.replace(/\D/g, '');
     if (this._cuiCache.has(digits)) return this._cuiCache.get(digits);
 
-    const data = await this._get('/Shared', {
-      COUNTRY: 'GT',
-      TAXID: this.paddedTaxid,
-      DATA1: 'SHARED_GETINFOCUI',
-      DATA2: `CUI|${digits}`,
-      USERNAME: this.username,
+    const data = await this._send('GET', '/Shared', {
+      queryParams: {
+        COUNTRY: 'GT',
+        TAXID: this.paddedTaxid,
+        DATA1: 'SHARED_GETINFOCUI',
+        DATA2: `CUI|${digits}`,
+        USERNAME: this.username,
+      },
     });
 
     const normalized = this._parseCuiResponse(digits, data);
@@ -728,13 +792,44 @@ export class DigifactClient {
    * @returns {Promise<object>}
    */
   async getDteInfo(authNumber) {
-    return this._get('/Shared', {
-      COUNTRY: 'GT',
-      TAXID: this.paddedTaxid,
-      DATA1: 'SHARED_GETDTEINFO',
-      DATA2: `AUTHNUMBER|${authNumber}`,
-      USERNAME: this.username,
+    return this._send('GET', '/Shared', {
+      queryParams: {
+        COUNTRY: 'GT',
+        TAXID: this.paddedTaxid,
+        DATA1: 'SHARED_GETDTEINFO',
+        DATA2: `AUTHNUMBER|${authNumber}`,
+        USERNAME: this.username,
+      },
     });
+  }
+
+  /**
+   * Find the DTEs certified with an internal reference on a given day.
+   *
+   * Uses `SHARED_GETDTEINFO_BY_INTERNALID`. Returns the `RESPONSE` rows
+   * (`GUID`, `SERIE`, `NUMERO`, `ESTATUS`…), or an empty array when Digifact
+   * has no DTE with that reference on that day. A reply that is not JSON throws a
+   * retryable `DigifactApiError` instead of looking empty.
+   *
+   * @param {string} reference
+   * @param {Date|string} issuedOn  Issue date, as a `Date` (read in Guatemala time) or "YYYY-MM-DD".
+   * @returns {Promise<Array<object>>}
+   */
+  async findByInternalReference(reference, issuedOn) {
+    const data = await this._send('GET', '/Shared', {
+      queryParams: {
+        COUNTRY: 'GT',
+        TAXID: this.paddedTaxid,
+        DATA1: 'SHARED_GETDTEINFO_BY_INTERNALID',
+        DATA2: `REFERENCIA_INTERNA|${reference}|ISSUEDDATE|${gtIsoDay(issuedOn)}`,
+        USERNAME: this.username,
+      },
+    });
+    if (data && Object.hasOwn(data, '_text')) {
+      throw new DigifactApiError('GetDteInfoByInternalId returned a response that is not JSON', null, data, { retryable: true });
+    }
+    const rows = data?.RESPONSE;
+    return Array.isArray(rows) ? rows.filter(isPlainObject) : [];
   }
 
   /**
@@ -742,11 +837,13 @@ export class DigifactClient {
    * @returns {Promise<object>}
    */
   async getDte(authNumber, format = 'JSON') {
-    return this._get('/GetDocument', {
-      AUTHNUMBER: authNumber,
-      TAXID: this.paddedTaxid,
-      FORMAT: format,
-      USERNAME: this.username,
+    return this._send('GET', '/GetDocument', {
+      queryParams: {
+        AUTHNUMBER: authNumber,
+        TAXID: this.paddedTaxid,
+        FORMAT: format,
+        USERNAME: this.username,
+      },
     });
   }
 }

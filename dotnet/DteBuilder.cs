@@ -19,11 +19,57 @@ internal static class DteBuilder
     private static readonly HashSet<string> AltAdendaTypes =
         new(StringComparer.OrdinalIgnoreCase) { "NABN", "RDON", "RECI" };
 
-    private const string AdendaCodeStd = "FRONT-263C-444B-89BA-6F87EC1330C0";
+    internal const string AdendaCodeStd = "FRONT-263C-444B-89BA-6F87EC1330C0";
     private const string AdendaCodeAlt = "FRONT-67C1-4545-BA1E-AA3C115E18D6";
 
     private static string GetAdendaCode(string docType) =>
         AltAdendaTypes.Contains(docType) ? AdendaCodeAlt : AdendaCodeStd;
+
+    // ── Internal reference (ADENDA Code) ──────────────────────────────────────
+
+    internal const string ValidateReference = "VALIDAR";
+    internal const string SkipReferenceValidation = "NO_VALIDAR";
+    private const string ReferenceValidationFlag = "VALIDAR_REFERENCIA_INTERNA";
+
+    /// <summary>
+    /// Set the Digifact internal reference (ADENDA <c>Code</c>) of a built payload.
+    /// With <paramref name="validate"/> Digifact rejects a second DTE with the same
+    /// reference (error 9022), which makes retries safe. DTE types whose builder
+    /// carries no ADENDA (NCRE, NDEB, FCAM, FESP, CCA) get a minimal one.
+    /// </summary>
+    internal static JsonObject ApplyInternalReference(JsonObject payload, string reference, bool validate)
+    {
+        var flag = new JsonObject
+        {
+            ["Name"] = ReferenceValidationFlag,
+            ["Data"] = (JsonNode?)null,
+            ["Value"] = validate ? ValidateReference : SkipReferenceValidation,
+        };
+
+        if (payload["AdditionalDocumentInfo"] is not JsonObject documentInfo)
+            payload["AdditionalDocumentInfo"] = documentInfo = new JsonObject();
+        if (documentInfo["AdditionalInfo"] is not JsonArray entries)
+            documentInfo["AdditionalInfo"] = entries = new JsonArray();
+
+        var adenda = entries.OfType<JsonObject>().FirstOrDefault(entry => (string?)entry["Type"] == "ADENDA");
+        if (adenda is null)
+        {
+            entries.Add(new JsonObject
+            {
+                ["Code"] = reference,
+                ["Type"] = "ADENDA",
+                ["AditionalInfo"] = new JsonArray { flag },
+            });
+            return payload;
+        }
+
+        adenda["Code"] = reference;
+        if (adenda["AditionalInfo"] is not JsonArray info)
+            adenda["AditionalInfo"] = info = new JsonArray();
+        info.RemoveAll(entry => entry is JsonObject named && (string?)named["Name"] == ReferenceValidationFlag);
+        info.Insert(0, flag);
+        return payload;
+    }
 
     // ── Frase defaults (TipoFrase / CodigoEscenario) ──────────────────────────
 

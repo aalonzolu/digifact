@@ -265,7 +265,9 @@ const client = new DigifactClient({
 
 ## Referencia de métodos
 
-Todos los métodos son **asíncronos**. Los de emisión devuelven `DteResult` con `result.authNumber`, `series`, `number`, `issueDateTime`, `raw`.
+Todos los métodos son **asíncronos**. Los de emisión devuelven `DteResult` con `result.authNumber`, `series`, `number`, `issueDateTime`, `enrolledTimestamp`, `additionalInfo` (acuse de la SAT) y `raw`.
+
+`invoice()`, `ccaInvoice()`, `fuelInvoice()`, `creditNote()` y `debitNote()` aceptan además `opts.internal_reference` y `opts.validate_internal_reference` (ver [Emisión sin duplicados](#emisión-sin-duplicados-referencia-interna)).
 
 | Método | Firma | Descripción |
 |--------|-------|-------------|
@@ -280,13 +282,50 @@ Todos los métodos son **asíncronos**. Los de emisión devuelven `DteResult` co
 | `lookupCui()` | `lookupCui(cui)` | Consulta SAT por CUI (DPI). Devuelve `{ cui, name, status }`. El nombre viene como `"APELLIDOS, NOMBRES"`, tal como lo registra SAT. |
 | `getDte()` | `getDte(authNumber, format = 'JSON')` | Recupera el DTE (`'JSON'`, `'XML'`, `'HTML'`, `'PDF'`). |
 | `getDteInfo()` | `getDteInfo(authNumber)` | Metadatos del DTE. |
+| `findByInternalReference()` | `findByInternalReference(reference, issuedOn)` | DTE certificados con esa referencia interna ese día (`SHARED_GETDTEINFO_BY_INTERNALID`). Devuelve `Array<object>`, vacío si no hay. |
 
 ### Parámetros comunes
 
 - **`buyer`**: `'CF'` (consumidor final), un NIT string (`'12345678'` — se consulta el nombre), un CUI string de 13 dígitos (`'1234567890123'` — se consulta el nombre), un objeto CUI (`{ type: 'CUI', taxid }` — se consulta el nombre; con `name` explícito no se consulta) o un objeto NIT explícito (`{ taxid, name, address, city, district, state, country, email }`).
 - **`items`**: array de objetos con `description` (req), `price` (req), `qty` (1), `type` (`'Servicio'`/`'Bien'`), `unit_of_measure` (`'UNI'`), `discount` (opcional).
-- **`opts`**: `doc_type`, `payment_terms` (req. para FCAM), `amount_str`, `observaciones`, `tipo_personeria`, `tipo_frase`, `escenario`.
+- **`opts`**: `doc_type`, `payment_terms` (req. para FCAM), `amount_str`, `observaciones`, `tipo_personeria`, `tipo_frase`, `escenario`, `internal_reference`, `validate_internal_reference`.
 - **`origin`** (NCRE/NDEB): `{ auth_number, date: 'YYYY-MM-DD', series, number }`.
+
+## Emisión sin duplicados (referencia interna)
+
+Digifact guarda una referencia interna por DTE (el `Code` de la ADENDA). Con `validate_internal_reference: true`
+rechaza un segundo DTE con la misma referencia, así que un envío que se quedó sin respuesta se puede repetir sin
+emitir dos veces:
+
+```js
+import { randomUUID } from 'node:crypto';
+import { DigifactDuplicateReferenceError } from 'digifact-sdk';
+
+const referencia = randomUUID();  // un GUID; Digifact también acepta referencias más cortas
+try {
+  const result = await client.invoice('CF', items, { internal_reference: referencia, validate_internal_reference: true });
+} catch (e) {
+  if (!(e instanceof DigifactDuplicateReferenceError)) throw e;
+  // ya se había enviado: el DTE pudo quedar certificado
+  const filas = await client.findByInternalReference(referencia, '2026-11-03');
+}
+```
+
+- Sin `internal_reference` el payload no cambia: se envía la referencia fija de siempre con `NO_VALIDAR`.
+- NCRE, NDEB, FCAM, FESP y CCA reciben una ADENDA mínima con la referencia, junto a su complemento.
+- `issuedOn` acepta `'YYYY-MM-DD'` o un `Date`; el `Date` se lee como día en hora de Guatemala (UTC-6).
+- `SHARED_GETDTEINFO_BY_INTERNALID` y el error `9022` no están en la documentación de Digifact para
+  Guatemala, pero se verificaron en el ambiente de pruebas el 3 de noviembre de 2026: el duplicado llega con
+  `code` 3000 y `[9022]` en la descripción, y la consulta encuentra el DTE sin prefijo en `DATA2`.
+
+## Token y reintentos
+
+- Si Digifact responde `401` (token vencido) y el cliente tiene `password`, el SDK inicia sesión otra vez y repite la
+  petición una sola vez. Con solo `token`, lanza `DigifactAuthError`.
+- `client.token` devuelve el token vigente, para guardarlo en un caché compartido y pasarlo como `token` a otros
+  procesos.
+- Los errores HTTP traen `e.code` (el estado HTTP) y `e.retryable`: `true` para 5xx, `false` para 4xx (`400`,
+  `406` documento inválido, `415` tipo de contenido).
 
 ## Establecimiento (sucursal)
 
@@ -310,7 +349,8 @@ Aplican a todos los DTE emitidos por ese cliente. Si se omiten, se usan los defa
 import {
   DigifactError,            // base
   DigifactAuthError,        // fallo de autenticación
-  DigifactApiError,         // error HTTP / de API
+  DigifactApiError,         // error HTTP / de API (.retryable)
+  DigifactDuplicateReferenceError, // referencia interna ya enviada (9022)
   DigifactValidationError,  // rechazo de SAT
   DigifactNitNotFoundError, // NIT no encontrado
 } from 'digifact-sdk';

@@ -41,6 +41,7 @@ Ordenados de más usados a menos usados.
 | `petroleo_rates` | `array<string,float>` | `[]` | Mapa código PETROLEO → tarifa por unidad (SUPER/REGULAR/DIESEL). Usado sólo por `fuelInvoice()` (gasolineras). |
 | `timeout` | `int` | `120` | Timeout HTTP en segundos. |
 | `tipo_personeria` | `string` | `"1"` | Código de `TipoPersoneria` del RTU. **Sólo aplica a RDON** (Recibo por Donación); ignóralo en los demás documentos. |
+| `transport` | `?callable` | cURL | Transporte HTTP `fn(string $method, string $url, array $headers, ?string $body): array` que devuelve `[estado, cuerpo]`. Para pruebas o para usar otro cliente HTTP. |
 
 ## Inicio rápido
 
@@ -276,7 +277,9 @@ del RTU en el portal de SAT.
 
 ## Referencia de métodos
 
-Todos los métodos devuelven `DteResult` (con `$result->authNumber`, `series`, `number`, `issueDateTime`, `raw`) salvo indicación contraria.
+Todos los métodos devuelven `DteResult` (con `$result->authNumber`, `series`, `number`, `issueDateTime`, `enrolledTimestamp`, `additionalInfo` (acuse de la SAT) y `raw`) salvo indicación contraria.
+
+`invoice()`, `ccaInvoice()`, `fuelInvoice()`, `creditNote()` y `debitNote()` aceptan además `internal_reference` y `validate_internal_reference` en `$opts` (ver [Emisión sin duplicados](#emisión-sin-duplicados-referencia-interna)).
 
 | Método | Firma | Retorna | Descripción |
 |--------|-------|---------|-------------|
@@ -291,6 +294,7 @@ Todos los métodos devuelven `DteResult` (con `$result->authNumber`, `series`, `
 | `lookupCui()` | `lookupCui(string $cui)` | `array` | Consulta el nombre de un CUI (DPI) en SAT. Devuelve `['cui','name','status']`. El nombre viene como `"APELLIDOS, NOMBRES"`, tal como lo registra SAT. |
 | `getDte()` | `getDte(string $authNumber, string $format = 'JSON')` | `array` | Recupera el DTE en el formato indicado (`'JSON'`, `'XML'`, `'HTML'`, `'PDF'`). |
 | `getDteInfo()` | `getDteInfo(string $authNumber)` | `array` | Metadatos de un DTE emitido. |
+| `findByInternalReference()` | `findByInternalReference(string $reference, string\|\DateTimeInterface $issuedOn)` | `array` | DTE certificados con esa referencia interna ese día (`SHARED_GETDTEINFO_BY_INTERNALID`). Devuelve la lista de filas, vacía si no hay. |
 
 ### Parámetros comunes
 
@@ -301,8 +305,45 @@ Todos los métodos devuelven `DteResult` (con `$result->authNumber`, `series`, `
   - un array `['type' => 'CUI', 'taxid' => ...]` → se consulta el nombre; con `'name'` explícito no se consulta,
   - un array NIT explícito (`['taxid','name','address','city','district','state','country','email']`).
 - **`$items`**: lista de arreglos con `description` (string, req), `price` (float, req), `qty` (float, 1), `type` (`'Bien'`/`'Servicio'`), `unit_of_measure` (`'UNI'`), `discount` (opcional).
-- **`$opts`**: `doc_type` (`'FACT'`/`'FCAM'`/`'FESP'`/`'FPEQ'`/`'NABN'`/`'RDON'`/`'RECI'`), `payment_terms` (req. para FCAM), `amount_str`, `observaciones`, `tipo_personeria`, `tipo_frase`, `escenario`.
+- **`$opts`**: `doc_type` (`'FACT'`/`'FCAM'`/`'FESP'`/`'FPEQ'`/`'NABN'`/`'RDON'`/`'RECI'`), `payment_terms` (req. para FCAM), `amount_str`, `observaciones`, `tipo_personeria`, `tipo_frase`, `escenario`, `internal_reference`, `validate_internal_reference`.
 - **`$origin`** (NCRE/NDEB): `['auth_number' => ..., 'date' => 'YYYY-MM-DD', 'series' => ..., 'number' => ...]`.
+
+## Emisión sin duplicados (referencia interna)
+
+Digifact guarda una referencia interna por DTE (el `Code` de la ADENDA). Con `'validate_internal_reference' => true`
+rechaza un segundo DTE con la misma referencia, así que un envío que se quedó sin respuesta se puede repetir sin
+emitir dos veces:
+
+```php
+use Digifact\Fel\DigifactDuplicateReferenceException;
+
+// un GUID; Digifact también acepta referencias más cortas
+$referencia = vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex(random_bytes(16)), 4));
+try {
+    $result = $client->invoice('CF', $items, [
+        'internal_reference'          => $referencia,
+        'validate_internal_reference' => true,
+    ]);
+} catch (DigifactDuplicateReferenceException $e) {
+    // ya se había enviado: el DTE pudo quedar certificado
+    $filas = $client->findByInternalReference($referencia, '2026-11-03');
+}
+```
+
+* Sin `internal_reference` el payload no cambia: se envía la referencia fija de siempre con `NO_VALIDAR`.
+* NCRE, NDEB, FCAM, FESP y CCA reciben una ADENDA mínima con la referencia, junto a su complemento.
+* `SHARED_GETDTEINFO_BY_INTERNALID` y el error `9022` no están en la documentación de Digifact para
+  Guatemala, pero se verificaron en el ambiente de pruebas el 3 de noviembre de 2026: el duplicado llega con
+  `code` 3000 y `[9022]` en la descripción, y la consulta encuentra el DTE sin prefijo en `DATA2`.
+
+## Token y reintentos
+
+* Si Digifact responde `401` (token vencido) y el cliente tiene `password`, el SDK inicia sesión otra vez y repite la
+  petición una sola vez. Con solo `token`, lanza `DigifactAuthException`.
+* `$client->getToken()` devuelve el token vigente, para guardarlo en un caché compartido y pasarlo como `'token'` a
+  otros procesos.
+* Los errores HTTP traen `$e->getApiCode()` (el estado HTTP) y `$e->isRetryable()`: `true` para 5xx, `false` para 4xx
+  (`400`, `406` documento inválido, `415` tipo de contenido).
 
 ## Establecimiento (sucursal)
 
@@ -324,18 +365,19 @@ Aplican a todos los DTE emitidos por ese cliente. Si no los especificas, se usan
 
 ```php
 use Digifact\Fel\{
-    DigifactException,            // base
-    DigifactAuthException,        // fallo de autenticación
-    DigifactApiException,         // error HTTP / de API
-    DigifactValidationException,  // rechazo de SAT
-    DigifactNitNotFoundException, // NIT no encontrado
+    DigifactException,                   // base
+    DigifactAuthException,               // fallo de autenticación
+    DigifactApiException,                // error HTTP / de API (isRetryable())
+    DigifactDuplicateReferenceException, // referencia interna ya enviada (9022)
+    DigifactValidationException,         // rechazo de SAT
+    DigifactNitNotFoundException,        // NIT no encontrado
 };
 
 try {
     $result = $client->invoice('CF', $items);
 } catch (DigifactValidationException $e) {
-    echo "SAT rechazó (code={$e->getCode()}): {$e->getMessage()}\n";
-    print_r($e->raw);
+    echo "SAT rechazó (code={$e->getApiCode()}): {$e->getMessage()}\n";
+    print_r($e->getRaw());
 } catch (DigifactException $e) {
     echo "Error del SDK: {$e->getMessage()}\n";
 }

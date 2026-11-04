@@ -19,6 +19,10 @@ class DteBuilder
     private const ADENDA_CODE_ALT = 'FRONT-67C1-4545-BA1E-AA3C115E18D6';
     private const ALT_ADENDA_TYPES = ['NABN', 'RDON', 'RECI'];
 
+    public const VALIDATE_REFERENCE = 'VALIDAR';
+    public const SKIP_REFERENCE_VALIDATION = 'NO_VALIDAR';
+    private const VALIDATION_FLAG = 'VALIDAR_REFERENCIA_INTERNA';
+
     // ── Exención temporal de combustibles (Decreto 22-2026) ──────────────────
 
     public const FUEL_EXEMPT_SUPER = '18';
@@ -130,6 +134,45 @@ class DteBuilder
         return in_array($docType, self::ALT_ADENDA_TYPES, true)
             ? self::ADENDA_CODE_ALT
             : self::ADENDA_CODE_STD;
+    }
+
+    /**
+     * Set the Digifact internal reference (ADENDA Code) of a built payload.
+     *
+     * With $validate Digifact rejects a second DTE with the same reference
+     * (error 9022), which makes retries safe. DTE types whose builder carries
+     * no ADENDA (NCRE, NDEB, FCAM, FESP, CCA) get a minimal one.
+     */
+    public static function applyInternalReference(array $payload, string $reference, bool $validate): array
+    {
+        $flag = [
+            'Name'  => self::VALIDATION_FLAG,
+            'Data'  => null,
+            'Value' => $validate ? self::VALIDATE_REFERENCE : self::SKIP_REFERENCE_VALIDATION,
+        ];
+        $entries = $payload['AdditionalDocumentInfo']['AdditionalInfo'] ?? [];
+
+        $adendaIndex = null;
+        foreach ($entries as $index => $entry) {
+            if (($entry['Type'] ?? null) === 'ADENDA') {
+                $adendaIndex = $index;
+                break;
+            }
+        }
+
+        if ($adendaIndex === null) {
+            $entries[] = ['Code' => $reference, 'Type' => 'ADENDA', 'AditionalInfo' => [$flag]];
+        } else {
+            $others = array_filter(
+                $entries[$adendaIndex]['AditionalInfo'] ?? [],
+                fn (array $info): bool => ($info['Name'] ?? null) !== self::VALIDATION_FLAG
+            );
+            $entries[$adendaIndex]['Code'] = $reference;
+            $entries[$adendaIndex]['AditionalInfo'] = [$flag, ...array_values($others)];
+        }
+
+        $payload['AdditionalDocumentInfo']['AdditionalInfo'] = $entries;
+        return $payload;
     }
 
     /**
@@ -401,7 +444,7 @@ class DteBuilder
         }
 
         $aditionalInfo = [
-            ['Name' => 'VALIDAR_REFERENCIA_INTERNA', 'Data' => null, 'Value' => 'NO_VALIDAR'],
+            ['Name' => self::VALIDATION_FLAG, 'Data' => null, 'Value' => self::SKIP_REFERENCE_VALIDATION],
         ];
         foreach ($extraAditionalInfo as $entry) {
             $aditionalInfo[] = $entry;
@@ -1009,7 +1052,7 @@ class DteBuilder
                 'Code'          => '00000013',
                 'Type'          => 'ADENDA',
                 'AditionalInfo' => [
-                    ['Name' => 'VALIDAR_REFERENCIA_INTERNA', 'Data' => null, 'Value' => 'NO_VALIDAR'],
+                    ['Name' => self::VALIDATION_FLAG, 'Data' => null, 'Value' => self::SKIP_REFERENCE_VALIDATION],
                 ],
             ]],
         ];
